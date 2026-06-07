@@ -1,0 +1,19 @@
+{
+  "name": "Badminton Championship",
+  "short_name": "Badminton",
+  "description": "Weekly badminton tournament scheduler and championship table.",
+  "start_url": ".",
+  "scope": ".",
+  "display": "standalone",
+  "background_color": "#f7f6ef",
+  "theme_color": "#16a34a",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
