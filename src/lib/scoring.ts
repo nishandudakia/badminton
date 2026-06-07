@@ -42,7 +42,7 @@ export function validateMatchScore(
   return { valid: true };
 }
 
-export function calculateSessionResults(session: Session): SessionResult[] {
+export function calculateSessionResults(session: Session, options: { includeFinals?: boolean } = {}): SessionResult[] {
   const accumulators = new Map<string, PlayerAccumulator>();
 
   for (const playerId of session.playerIds) {
@@ -57,6 +57,10 @@ export function calculateSessionResults(session: Session): SessionResult[] {
   }
 
   for (const match of session.matches) {
+    if (match.isFinal && options.includeFinals === false) {
+      continue;
+    }
+
     if (!match.score) {
       continue;
     }

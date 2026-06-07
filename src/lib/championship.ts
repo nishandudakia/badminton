@@ -1,6 +1,6 @@
 import { createId } from "./id";
 import { calculateSessionResults } from "./scoring";
-import { generateAmericanoSchedule } from "./schedule";
+import { generateAmericanoSchedule, generateFinalsMatches } from "./schedule";
 import type {
   AppState,
   ChampionshipHistory,
@@ -23,6 +23,8 @@ export type SessionInput = {
   targetScore: number;
   courtCount: number;
   date?: string;
+  finalsCountTowardsLeaderboard?: boolean;
+  includeFinals?: boolean;
 };
 
 export function addPlayer(state: AppState, input: PlayerInput): AppState {
@@ -92,6 +94,7 @@ export function createSession(state: AppState, input: SessionInput): AppState {
   const date = input.date ?? new Date().toISOString().slice(0, 10);
   const targetScore = Math.max(1, Math.round(input.targetScore || 15));
   const courtCount = Math.max(1, Math.round(input.courtCount || 1));
+  const includeFinals = input.includeFinals ?? uniquePlayerIds.length >= 4;
 
   const session: Session = {
     id: sessionId,
@@ -105,6 +108,8 @@ export function createSession(state: AppState, input: SessionInput): AppState {
       courtCount,
     }),
     status: "active",
+    finalsCountTowardsLeaderboard: input.finalsCountTowardsLeaderboard ?? true,
+    includeFinals,
     createdAt: now,
     updatedAt: now,
   };
@@ -195,24 +200,44 @@ export function setMatchScore(
 ): AppState {
   return {
     ...state,
-    sessions: state.sessions.map((session) =>
-      session.id === sessionId
-        ? {
-            ...session,
-            matches: session.matches.map((match) =>
-              match.id === matchId
-                ? {
-                    ...match,
-                    score: { ...score, enteredAt: new Date().toISOString() },
-                    status: "complete",
-                  }
-                : match,
-            ),
-            updatedAt: new Date().toISOString(),
-          }
-        : session,
-    ),
+    sessions: state.sessions.map((session) => {
+      if (session.id !== sessionId) return session;
+
+      const scoredMatches = session.matches.map((match) =>
+        match.id === matchId
+          ? {
+              ...match,
+              score: { ...score, enteredAt: new Date().toISOString() },
+              status: "complete" as const,
+            }
+          : match,
+      );
+      const nextSession = { ...session, matches: scoredMatches, updatedAt: new Date().toISOString() };
+      return ensureFinalsGenerated(nextSession);
+    }),
   };
+}
+
+function ensureFinalsGenerated(session: Session): Session {
+  const includeFinals = session.includeFinals ?? true;
+  if (!includeFinals || session.matches.some((match) => match.isFinal)) {
+    return session;
+  }
+
+  const normalMatches = session.matches.filter((match) => !match.isFinal);
+  if (!normalMatches.length || normalMatches.some((match) => !match.score)) {
+    return session;
+  }
+
+  const interimResults = calculateSessionResults({ ...session, matches: normalMatches }, { includeFinals: false });
+  const finals = generateFinalsMatches({
+    sessionId: session.id,
+    existingMatchCount: normalMatches.length,
+    leaderboard: interimResults,
+  });
+
+  if (!finals.length) return session;
+  return { ...session, matches: [...normalMatches, ...finals] };
 }
 
 export function clearMatchScore(state: AppState, sessionId: string, matchId: string): AppState {
@@ -236,7 +261,8 @@ export function finalizeSession(state: AppState, sessionId: string): AppState {
   const session = state.sessions.find((item) => item.id === sessionId);
   if (!session) return state;
 
-  const results = calculateSessionResults(session);
+  const includeFinalsInAwards = session.finalsCountTowardsLeaderboard ?? true;
+  const results = calculateSessionResults(session, { includeFinals: includeFinalsInAwards });
   const now = new Date().toISOString();
   const historyWithoutSession = state.history.filter((item) => item.sessionId !== sessionId);
   const awards = results.map<ChampionshipHistory>((result) => ({
@@ -246,7 +272,12 @@ export function finalizeSession(state: AppState, sessionId: string): AppState {
     points: result.championshipPointsAwarded,
     reason: "session_award",
     awardedAt: now,
-    metadata: { sessionDate: session.date, sessionPoints: result.sessionPoints, position: result.position },
+    metadata: {
+      sessionDate: session.date,
+      sessionPoints: result.sessionPoints,
+      position: result.position,
+      finalsCounted: includeFinalsInAwards,
+    },
   }));
 
   return recalculateSeason({
@@ -332,6 +363,8 @@ export function importHistoricalSessions(
       matches: [],
       status: "finalized",
       finalizedAt: now,
+      finalsCountTowardsLeaderboard: true,
+      includeFinals: false,
       results,
       createdAt: now,
       updatedAt: now,
