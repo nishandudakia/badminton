@@ -19,6 +19,8 @@ export type Match = {
   teamA: string[];
   teamB: string[];
   byes: string[];
+  roundNumber?: number;
+  isFinal?: boolean;
   score?: MatchScore;
   status: "scheduled" | "complete";
 };
@@ -40,6 +42,8 @@ export type Session = {
   matches: Match[];
   status: SessionStatus;
   finalizedAt?: string;
+  finalsCountTowardsLeaderboard: boolean;
+  includeFinals: boolean;
   results?: SessionResult[];
   createdAt: string;
   updatedAt: string;

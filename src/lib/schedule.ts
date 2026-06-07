@@ -1,8 +1,8 @@
-import type { Match } from "./types";
+import type { Match, SessionResult } from "./types";
 
-type PairKey = string;
+export type PairKey = string;
 
-type GeneratorOptions = {
+export type GeneratorOptions = {
   sessionId: string;
   playerIds: string[];
   courtCount: number;
@@ -23,6 +23,20 @@ type Counters = {
   opponents: Map<PairKey, number>;
 };
 
+export type FairnessPlayerSummary = {
+  playerId: string;
+  matches: number;
+  uniquePartners: number;
+  uniqueOpponents: number;
+  byes: number;
+};
+
+export type FairnessSummary = {
+  players: FairnessPlayerSummary[];
+  repeatedPartnerships: number;
+  repeatedOpponentMatchups: number;
+};
+
 export function generateAmericanoSchedule({
   sessionId,
   playerIds,
@@ -34,11 +48,15 @@ export function generateAmericanoSchedule({
     return [];
   }
 
+  if (uniquePlayerIds.length === 8 && targetRounds === undefined) {
+    return generateEightPlayerAmericano(sessionId, uniquePlayerIds);
+  }
+
   const rounds = targetRounds ?? defaultRoundCount(uniquePlayerIds.length);
   const counters = createCounters(uniquePlayerIds);
   const matches: Match[] = [];
 
-  for (let round = 0; round < rounds; round += 1) {
+  for (let round = 1; round <= rounds; round += 1) {
     const available = new Set(uniquePlayerIds);
     const courtsThisRound = Math.max(1, Math.min(courtCount, Math.floor(uniquePlayerIds.length / 4)));
     const roundCandidates: Array<{ candidate: Candidate; courtNumber: number }> = [];
@@ -56,16 +74,7 @@ export function generateAmericanoSchedule({
 
     const roundByes = Array.from(available);
     for (const { candidate, courtNumber } of roundCandidates) {
-      matches.push({
-        id: createMatchId(sessionId, matches.length + 1),
-        sessionId,
-        matchNumber: matches.length + 1,
-        courtNumber,
-        teamA: candidate.teamA,
-        teamB: candidate.teamB,
-        byes: roundByes,
-        status: "scheduled",
-      });
+      matches.push(createMatch(sessionId, matches.length + 1, round, courtNumber, candidate.teamA, candidate.teamB, roundByes));
     }
 
     for (const playerId of available) {
@@ -76,10 +85,171 @@ export function generateAmericanoSchedule({
   return matches;
 }
 
+export function generateFinalsMatches({
+  sessionId,
+  existingMatchCount,
+  leaderboard,
+}: {
+  sessionId: string;
+  existingMatchCount: number;
+  leaderboard: SessionResult[];
+}): Match[] {
+  const rankedPlayerIds = [...leaderboard].sort((a, b) => a.position - b.position || b.sessionPoints - a.sessionPoints).map((row) => row.playerId);
+  if (rankedPlayerIds.length < 4) return [];
+
+  const finalRoundNumber = Math.floor(existingMatchCount / 2) + 1;
+  const finals: Match[] = [
+    createMatch(
+      sessionId,
+      existingMatchCount + 1,
+      finalRoundNumber,
+      1,
+      [rankedPlayerIds[0], rankedPlayerIds[1]],
+      [rankedPlayerIds[2], rankedPlayerIds[3]],
+      rankedPlayerIds.slice(4),
+      true,
+    ),
+  ];
+
+  if (rankedPlayerIds.length >= 8) {
+    finals.push(
+      createMatch(
+        sessionId,
+        existingMatchCount + 2,
+        finalRoundNumber,
+        2,
+        [rankedPlayerIds[4], rankedPlayerIds[5]],
+        [rankedPlayerIds[6], rankedPlayerIds[7]],
+        rankedPlayerIds.slice(8),
+        true,
+      ),
+    );
+  }
+
+  return finals;
+}
+
+export function getFairnessSummary(matches: Match[], playerIds: string[]): FairnessSummary {
+  const summary = new Map<string, { partners: Set<string>; opponents: Set<string>; matches: number; byes: number }>();
+  const partnerships = new Map<PairKey, number>();
+  const opponents = new Map<PairKey, number>();
+
+  for (const playerId of playerIds) {
+    summary.set(playerId, { partners: new Set(), opponents: new Set(), matches: 0, byes: 0 });
+  }
+
+  for (const match of matches.filter((item) => !item.isFinal)) {
+    for (const playerId of [...match.teamA, ...match.teamB]) {
+      const row = summary.get(playerId);
+      if (row) row.matches += 1;
+    }
+    for (const playerId of match.byes) {
+      const row = summary.get(playerId);
+      if (row) row.byes += 1;
+    }
+
+    addPartnershipSummary(summary, partnerships, match.teamA[0], match.teamA[1]);
+    addPartnershipSummary(summary, partnerships, match.teamB[0], match.teamB[1]);
+    for (const playerA of match.teamA) {
+      for (const playerB of match.teamB) {
+        summary.get(playerA)?.opponents.add(playerB);
+        summary.get(playerB)?.opponents.add(playerA);
+        incrementPair(opponents, playerA, playerB);
+      }
+    }
+  }
+
+  return {
+    players: playerIds.map((playerId) => {
+      const row = summary.get(playerId);
+      return {
+        playerId,
+        matches: row?.matches ?? 0,
+        uniquePartners: row?.partners.size ?? 0,
+        uniqueOpponents: row?.opponents.size ?? 0,
+        byes: row?.byes ?? 0,
+      };
+    }),
+    repeatedPartnerships: countRepeats(partnerships),
+    repeatedOpponentMatchups: countRepeats(opponents),
+  };
+}
+
+function generateEightPlayerAmericano(sessionId: string, playerIds: string[]) {
+  const partnerRounds = createRoundRobinPairRounds(playerIds);
+  const roundPairings = chooseBalancedPairPairings(partnerRounds);
+  const matches: Match[] = [];
+
+  roundPairings.forEach((roundMatches, roundIndex) => {
+    roundMatches.forEach(([teamA, teamB], courtIndex) => {
+      matches.push(createMatch(sessionId, matches.length + 1, roundIndex + 1, courtIndex + 1, teamA, teamB, []));
+    });
+  });
+
+  return matches;
+}
+
+function createRoundRobinPairRounds(playerIds: string[]) {
+  const fixed = playerIds[0];
+  let rotating = playerIds.slice(1);
+  const rounds: string[][][] = [];
+
+  for (let round = 0; round < playerIds.length - 1; round += 1) {
+    const lineup = [fixed, ...rotating];
+    const pairs: string[][] = [];
+    for (let index = 0; index < lineup.length / 2; index += 1) {
+      pairs.push([lineup[index], lineup[lineup.length - 1 - index]]);
+    }
+    rounds.push(pairs);
+    rotating = [rotating[rotating.length - 1], ...rotating.slice(0, -1)];
+  }
+
+  return rounds;
+}
+
+function chooseBalancedPairPairings(rounds: string[][][]) {
+  const options = rounds.map((pairs) => [
+    [[pairs[0], pairs[1]], [pairs[2], pairs[3]]],
+    [[pairs[0], pairs[2]], [pairs[1], pairs[3]]],
+    [[pairs[0], pairs[3]], [pairs[1], pairs[2]]],
+  ]);
+  let best: string[][][][] = [];
+  let bestCost = Number.POSITIVE_INFINITY;
+
+  function visit(roundIndex: number, selected: string[][][][], opponentCounts: Map<PairKey, number>) {
+    if (roundIndex === options.length) {
+      const values = Array.from(opponentCounts.values());
+      const repeats = values.reduce((sum, count) => sum + Math.max(0, count - 1), 0);
+      const spread = Math.max(...values) - Math.min(...values);
+      const cost = repeats + spread * 20;
+      if (cost < bestCost) {
+        bestCost = cost;
+        best = selected.map((round) => round.map((match) => match.map((team) => [...team])));
+      }
+      return;
+    }
+
+    for (const option of options[roundIndex]) {
+      const nextCounts = new Map(opponentCounts);
+      for (const [teamA, teamB] of option) {
+        for (const playerA of teamA) {
+          for (const playerB of teamB) {
+            incrementPair(nextCounts, playerA, playerB);
+          }
+        }
+      }
+      visit(roundIndex + 1, [...selected, option], nextCounts);
+    }
+  }
+
+  visit(0, [], new Map());
+  return best;
+}
+
 function defaultRoundCount(playerCount: number) {
   if (playerCount <= 4) return 6;
   if (playerCount <= 6) return 8;
-  if (playerCount <= 8) return 10;
+  if (playerCount <= 8) return 7;
   return Math.min(14, playerCount + 3);
 }
 
@@ -140,12 +310,7 @@ function scoreCandidate(teamA: string[], teamB: string[], counters: Counters): C
     teamA,
     teamB,
     players,
-    cost:
-      partnershipPenalty * 12 +
-      opponentPenalty * 5 +
-      matchBalancePenalty * 8 +
-      byePenalty * 2 +
-      spreadPenalty,
+    cost: partnershipPenalty * 12 + opponentPenalty * 5 + matchBalancePenalty * 8 + byePenalty * 2 + spreadPenalty,
   };
 }
 
@@ -164,6 +329,21 @@ function recordCandidate(candidate: Candidate, counters: Counters) {
   }
 }
 
+function addPartnershipSummary(
+  summary: Map<string, { partners: Set<string>; opponents: Set<string>; matches: number; byes: number }>,
+  partnerships: Map<PairKey, number>,
+  a: string,
+  b: string,
+) {
+  summary.get(a)?.partners.add(b);
+  summary.get(b)?.partners.add(a);
+  incrementPair(partnerships, a, b);
+}
+
+function countRepeats(map: Map<PairKey, number>) {
+  return Array.from(map.values()).reduce((sum, count) => sum + Math.max(0, count - 1), 0);
+}
+
 function pairCount(map: Map<PairKey, number>, a: string, b: string) {
   return map.get(pairKey(a, b)) ?? 0;
 }
@@ -175,6 +355,30 @@ function incrementPair(map: Map<PairKey, number>, a: string, b: string) {
 
 export function pairKey(a: string, b: string): PairKey {
   return [a, b].sort().join("__");
+}
+
+function createMatch(
+  sessionId: string,
+  matchNumber: number,
+  roundNumber: number,
+  courtNumber: number,
+  teamA: string[],
+  teamB: string[],
+  byes: string[],
+  isFinal = false,
+): Match {
+  return {
+    id: createMatchId(sessionId, matchNumber),
+    sessionId,
+    matchNumber,
+    roundNumber,
+    courtNumber,
+    teamA,
+    teamB,
+    byes,
+    isFinal,
+    status: "scheduled",
+  };
 }
 
 function createMatchId(sessionId: string, matchNumber: number) {

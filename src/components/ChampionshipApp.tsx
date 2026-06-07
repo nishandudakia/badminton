@@ -59,6 +59,7 @@ import {
 } from "@/lib/championship";
 import { createInitialState } from "@/lib/seed";
 import { validateMatchScore, calculateSessionResults } from "@/lib/scoring";
+import { getFairnessSummary } from "@/lib/schedule";
 import { loadPersistedState, savePersistedState } from "@/lib/repository";
 import { clearStoredState } from "@/lib/storage";
 import { standingsToCsv, downloadTextFile } from "@/lib/export";
@@ -226,8 +227,14 @@ export function ChampionshipApp() {
             {view === "create" && (
               <CreateSession
                 state={state}
-                onCreate={(playerIds, targetScore, courtCount) => {
-                  commit((current) => createSession(current, { playerIds, targetScore, courtCount }));
+                onCreate={(playerIds, targetScore, courtCount, finalsCountTowardsLeaderboard, includeFinals) => {
+                  commit((current) => createSession(current, {
+                    playerIds,
+                    targetScore,
+                    courtCount,
+                    finalsCountTowardsLeaderboard,
+                    includeFinals,
+                  }));
                   setView("active");
                   showToast("Session generated");
                 }}
@@ -250,7 +257,6 @@ export function ChampionshipApp() {
                   }
                   setUndoStack((stack) => [...stack, { sessionId: activeSession.id, matchId: match.id, previous: match.score }]);
                   commit((current) => setMatchScore(current, activeSession.id, match.id, score));
-                  showToast("Score saved");
                 }}
                 onUndo={() => {
                   const last = undoStack.at(-1);
@@ -274,6 +280,7 @@ export function ChampionshipApp() {
                   commit((current) => regenerateSessionSchedule(current, activeSession.id));
                   showToast("Schedule regenerated");
                 }}
+                onShowLeaderboard={() => setView("leaderboard")}
                 onFinalize={() => {
                   commit((current) => finalizeSession(current, activeSession.id));
                   setView("results");
@@ -492,13 +499,15 @@ function CreateSession({
   onAddPlayer,
 }: {
   state: AppState;
-  onCreate: (playerIds: string[], targetScore: number, courtCount: number) => void;
+  onCreate: (playerIds: string[], targetScore: number, courtCount: number, finalsCountTowardsLeaderboard: boolean, includeFinals: boolean) => void;
   onAddPlayer: (name: string, isGuest: boolean) => void;
 }) {
   const activePlayers = state.players.filter((player) => !player.archivedAt);
   const [selected, setSelected] = useState<string[]>(activePlayers.filter((player) => !player.isGuest).map((player) => player.id));
   const [targetScore, setTargetScore] = useState(15);
   const [courtCount, setCourtCount] = useState(1);
+  const [finalsCountTowardsLeaderboard, setFinalsCountTowardsLeaderboard] = useState(true);
+  const [includeFinals, setIncludeFinals] = useState(true);
   const [guestName, setGuestName] = useState("");
 
   function togglePlayer(playerId: string) {
@@ -513,6 +522,20 @@ function CreateSession({
           <div className="flex gap-2">
             <NumberField label="Target" value={targetScore} min={1} onChange={setTargetScore} />
             <NumberField label="Courts" value={courtCount} min={1} onChange={setCourtCount} />
+          </div>
+          <div className="mt-4 grid gap-3 md:grid-cols-2">
+            <ToggleCard
+              checked={includeFinals}
+              label="Include finals round"
+              description="Generate finals from the interim leaderboard after normal rounds are complete."
+              onChange={setIncludeFinals}
+            />
+            <ToggleCard
+              checked={finalsCountTowardsLeaderboard}
+              label="Do finals count towards session leaderboard?"
+              description="When off, championship points use the leaderboard before finals."
+              onChange={setFinalsCountTowardsLeaderboard}
+            />
           </div>
         </div>
 
@@ -568,7 +591,7 @@ function CreateSession({
       <div className="sticky bottom-[72px] z-10 rounded-lg border border-black/10 bg-white/94 p-3 shadow-lg backdrop-blur dark:border-white/10 dark:bg-[#151a17]/94 lg:bottom-4">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-sm font-bold text-black/65 dark:text-white/65">{selected.length} attending</p>
-          <Button disabled={selected.length < 4} onClick={() => onCreate(selected, targetScore, courtCount)}>
+          <Button disabled={selected.length < 4} onClick={() => onCreate(selected, targetScore, courtCount, finalsCountTowardsLeaderboard, includeFinals)}>
             <Play size={16} />
             Generate schedule
           </Button>
@@ -587,6 +610,7 @@ function ActiveSession({
   onTeamsChange,
   onBasicsChange,
   onRegenerate,
+  onShowLeaderboard,
   onFinalize,
 }: {
   state: AppState;
@@ -597,10 +621,14 @@ function ActiveSession({
   onTeamsChange: (matchId: string, teamA: string[], teamB: string[]) => void;
   onBasicsChange: (targetScore: number, courtCount: number) => void;
   onRegenerate: () => void;
+  onShowLeaderboard: () => void;
   onFinalize: () => void;
 }) {
-  const results = calculateSessionResults(session);
+  const finalsCount = session.finalsCountTowardsLeaderboard ?? true;
+  const results = calculateSessionResults(session, { includeFinals: finalsCount });
   const completedMatches = session.matches.filter((match) => match.score).length;
+  const groupedMatches = groupMatchesByRound(session.matches);
+  const fairness = getFairnessSummary(session.matches, session.playerIds);
 
   return (
     <div className="space-y-5">
@@ -609,7 +637,7 @@ function ActiveSession({
           <div>
             <SectionTitle icon={Play} title={`Session ${session.date}`} />
             <p className="mt-2 text-sm font-medium text-black/60 dark:text-white/60">
-              {completedMatches}/{session.matches.length} matches complete
+              {completedMatches}/{session.matches.length} matches complete · finals {finalsCount ? "count" : "for fun"}
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -630,7 +658,13 @@ function ActiveSession({
 
       <section className="grid gap-5 xl:grid-cols-[1fr_360px]">
         <div className="space-y-3">
-          {session.matches.map((match) => (
+          {groupedMatches.map((round) => (
+            <section key={round.key} className="space-y-3">
+              <div className="sticky top-0 z-10 rounded-xl border border-black/10 bg-[#f7f6ef]/95 px-4 py-3 shadow-sm backdrop-blur dark:border-white/10 dark:bg-[#101412]/95">
+                <h3 className="text-lg font-black">{round.label}</h3>
+                <p className="text-sm font-medium text-black/55 dark:text-white/55">{round.matches.length} doubles match{round.matches.length === 1 ? "" : "es"}</p>
+              </div>
+              {round.matches.map((match) => (
             <MatchCard
               key={`${match.id}-${match.score?.enteredAt ?? "empty"}-${session.targetScore}`}
               state={state}
@@ -639,10 +673,31 @@ function ActiveSession({
               onSetScore={onSetScore}
               onTeamsChange={onTeamsChange}
             />
+              ))}
+            </section>
           ))}
           {!session.matches.length && <EmptyState title="Need at least four players" action="Create session" />}
         </div>
         <div className="space-y-5">
+          <Panel>
+            <SectionTitle icon={BarChart3} title="Fairness Summary" />
+            <div className="mt-4 overflow-x-auto">
+              <table className="w-full text-left text-sm">
+                <thead className="text-xs uppercase tracking-[0.12em] text-black/45 dark:text-white/45">
+                  <tr><th className="py-2">Player</th><th>Matches</th><th>Partners</th><th>Opponents</th><th>Byes</th></tr>
+                </thead>
+                <tbody>
+                  {fairness.players.map((row) => (
+                    <tr key={row.playerId} className="border-t border-black/10 dark:border-white/10">
+                      <td className="py-2 font-bold">{getPlayerName(state, row.playerId)}</td>
+                      <td>{row.matches}</td><td>{row.uniquePartners}</td><td>{row.uniqueOpponents}</td><td>{row.byes}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <p className="mt-3 text-sm font-semibold text-black/60 dark:text-white/60">Repeated partnerships: {fairness.repeatedPartnerships} · repeated opponent matchups: {fairness.repeatedOpponentMatchups}</p>
+          </Panel>
           <Panel>
             <SectionTitle icon={Medal} title="Live Results" />
             <div className="mt-4 space-y-3">
@@ -657,7 +712,51 @@ function ActiveSession({
           </Panel>
         </div>
       </section>
+      <button type="button" onClick={onShowLeaderboard} className="fixed inset-x-4 bottom-4 z-30 rounded-full bg-[#16a34a] px-5 py-4 text-center text-base font-black text-white shadow-2xl shadow-[#16a34a]/30 transition hover:bg-[#15803d] md:left-auto md:w-72">
+        Show Leaderboard
+      </button>
     </div>
+  );
+}
+
+
+function groupMatchesByRound(matches: Match[]) {
+  const groups = new Map<string, { key: string; label: string; matches: Match[]; sort: number }>();
+  matches.forEach((match, index) => {
+    const roundNumber = match.roundNumber ?? Math.floor(index / 2) + 1;
+    const key = match.isFinal ? "finals" : `round-${roundNumber}`;
+    const label = match.isFinal ? "Finals" : `Round ${roundNumber}`;
+    const existing = groups.get(key) ?? { key, label, matches: [], sort: match.isFinal ? 999 : roundNumber };
+    existing.matches.push(match);
+    groups.set(key, existing);
+  });
+  return Array.from(groups.values()).sort((a, b) => a.sort - b.sort);
+}
+
+function ToggleCard({
+  checked,
+  label,
+  description,
+  onChange,
+}: {
+  checked: boolean;
+  label: string;
+  description: string;
+  onChange: (checked: boolean) => void;
+}) {
+  return (
+    <label className="flex cursor-pointer gap-3 rounded-lg border border-black/10 bg-white p-4 dark:border-white/10 dark:bg-[#151a17]">
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(event) => onChange(event.target.checked)}
+        className="mt-1 h-5 w-5 accent-[#16a34a]"
+      />
+      <span>
+        <span className="block font-black">{label}</span>
+        <span className="mt-1 block text-sm font-medium text-black/55 dark:text-white/55">{description}</span>
+      </span>
+    </label>
   );
 }
 
@@ -675,21 +774,34 @@ function MatchCard({
   onTeamsChange: (matchId: string, teamA: string[], teamB: string[]) => void;
 }) {
   const [scoreA, setScoreA] = useState(match.score?.teamA ?? Math.ceil(session.targetScore / 2));
-  const [scoreB, setScoreB] = useState(match.score?.teamB ?? Math.floor(session.targetScore / 2));
+  const [manualScoreB, setManualScoreB] = useState(match.score?.teamB ?? Math.floor(session.targetScore / 2));
+  const [manualOpen, setManualOpen] = useState(false);
   const [overrideTarget, setOverrideTarget] = useState(match.score?.overrideTarget ?? false);
   const [note, setNote] = useState(match.score?.adminNote ?? "");
+  const scoreB = Math.max(0, session.targetScore - scoreA);
 
   const selectedPlayerIds = [...match.teamA, ...match.teamB];
   const duplicate = selectedPlayerIds.some((playerId, index) => selectedPlayerIds.indexOf(playerId) !== index);
+  const completed = Boolean(match.score);
+
+  function saveSliderScore(nextScoreA: number) {
+    const bounded = Math.min(session.targetScore, Math.max(0, Math.round(nextScoreA)));
+    setScoreA(bounded);
+    setManualScoreB(session.targetScore - bounded);
+    if (typeof navigator !== "undefined" && "vibrate" in navigator) {
+      navigator.vibrate(8);
+    }
+    onSetScore(match, { teamA: bounded, teamB: session.targetScore - bounded, overrideTarget: false, adminNote: note });
+  }
 
   return (
-    <article className="rounded-lg border border-black/10 bg-white p-4 shadow-sm dark:border-white/10 dark:bg-[#151a17]">
+    <article className={`rounded-2xl border p-4 shadow-sm transition ${completed ? "border-[#16a34a]/40 bg-[#eef8ef] dark:bg-[#12351f]" : "border-black/10 bg-white dark:border-white/10 dark:bg-[#151a17]"}`}>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <p className="text-xs font-black uppercase tracking-[0.16em] text-[#0f766e] dark:text-[#5eead4]">
-            Match {match.matchNumber} / Court {match.courtNumber}
+            {match.isFinal ? "Final" : `Match ${match.matchNumber}`} / Court {match.courtNumber}
           </p>
-          <p className="mt-1 text-sm text-black/55 dark:text-white/55">{match.score ? "Complete" : "Scheduled"}</p>
+          <p className="mt-1 text-sm text-black/55 dark:text-white/55">{completed ? "Complete · auto-saved" : "Drag the slider to enter score"}</p>
         </div>
         <StatusBadge status={match.status} />
       </div>
@@ -714,27 +826,61 @@ function MatchCard({
 
       {duplicate && <p className="mt-3 text-sm font-bold text-[#dc2626]">A player is selected more than once.</p>}
 
-      <div className="mt-4 grid gap-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
-        <NumberField label="Team A score" value={scoreA} min={0} onChange={setScoreA} />
-        <NumberField label="Team B score" value={scoreB} min={0} onChange={setScoreB} />
-        <Button onClick={() => onSetScore(match, { teamA: scoreA, teamB: scoreB, overrideTarget, adminNote: note })}>
-          <Save size={16} />
-          Save
+      <div className="mt-5 rounded-2xl border border-black/10 bg-[#fbfaf5] p-4 dark:border-white/10 dark:bg-[#101412]">
+        <div className="flex items-center justify-between gap-3">
+          <span className="text-sm font-black text-black/55 dark:text-white/55">Team A</span>
+          <div className="rounded-2xl bg-[#17201b] px-5 py-2 text-3xl font-black tabular-nums text-white dark:bg-[#f5f4ec] dark:text-[#101412]">
+            {scoreA} - {scoreB}
+          </div>
+          <span className="text-sm font-black text-black/55 dark:text-white/55">Team B</span>
+        </div>
+        <input
+          aria-label="Team A score slider"
+          type="range"
+          min={0}
+          max={session.targetScore}
+          step={1}
+          value={scoreA}
+          onChange={(event) => saveSliderScore(Number(event.target.value))}
+          className="score-slider mt-5 w-full accent-[#16a34a]"
+        />
+        <div className="mt-3 flex items-center justify-center gap-2">
+          <IconButton title="Decrease Team A score" onClick={() => saveSliderScore(scoreA - 1)}>
+            −
+          </IconButton>
+          <p className="px-2 text-xs font-black uppercase tracking-[0.12em] text-black/45 dark:text-white/45">Target {session.targetScore}</p>
+          <IconButton title="Increase Team A score" onClick={() => saveSliderScore(scoreA + 1)}>
+            +
+          </IconButton>
+        </div>
+      </div>
+
+      <div className="mt-3">
+        <Button compact variant="ghost" onClick={() => setManualOpen((open) => !open)}>
+          Edit manually
         </Button>
       </div>
 
-      <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center">
-        <label className="flex items-center gap-2 text-sm font-bold">
-          <input
-            type="checkbox"
-            checked={overrideTarget}
-            onChange={(event) => setOverrideTarget(event.target.checked)}
-            className="h-4 w-4 accent-[#16a34a]"
-          />
-          Admin override
-        </label>
-        {overrideTarget && <TextField label="Note" value={note} onChange={setNote} />}
-      </div>
+      {manualOpen && (
+        <div className="mt-4 grid gap-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
+          <NumberField label="Team A score" value={scoreA} min={0} onChange={setScoreA} />
+          <NumberField label="Team B score" value={manualScoreB} min={0} onChange={setManualScoreB} />
+          <Button onClick={() => onSetScore(match, { teamA: scoreA, teamB: manualScoreB, overrideTarget, adminNote: note })}>
+            <Save size={16} />
+            Save
+          </Button>
+          <label className="flex items-center gap-2 text-sm font-bold sm:col-span-3">
+            <input
+              type="checkbox"
+              checked={overrideTarget}
+              onChange={(event) => setOverrideTarget(event.target.checked)}
+              className="h-4 w-4 accent-[#16a34a]"
+            />
+            Admin override
+          </label>
+          {overrideTarget && <div className="sm:col-span-3"><TextField label="Note" value={note} onChange={setNote} /></div>}
+        </div>
+      )}
     </article>
   );
 }

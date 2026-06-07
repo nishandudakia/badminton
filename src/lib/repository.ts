@@ -241,6 +241,8 @@ function mapSessionFromRow(row: SessionRow, matches: Match[], results?: SessionR
     matches,
     status: row.status,
     finalizedAt: row.finalized_at ?? undefined,
+    finalsCountTowardsLeaderboard: true,
+    includeFinals: true,
     results,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -270,6 +272,8 @@ function mapMatchFromRow(row: MatchRow, score?: MatchScore): Match {
     teamA: row.team_a_player_ids,
     teamB: row.team_b_player_ids,
     byes: row.bye_player_ids,
+    roundNumber: Math.floor((row.match_number - 1) / 2) + 1,
+    isFinal: false,
     score,
     status: row.status,
   };
