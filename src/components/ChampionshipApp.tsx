@@ -183,9 +183,10 @@ function Dashboard({ state }: { state: AppState }) {
   const rankedPlayers = sortChampionshipPlayers(state.players.filter((player) => !player.isGuest && !player.archivedAt));
   const timeline = buildChampionshipTimeline(state);
   const leader = rankedPlayers[0];
+  const podium = rankedPlayers.slice(0, 3);
 
   return (
-    <div className="grid gap-5 xl:grid-cols-[1fr_360px]">
+    <div className="grid gap-4 xl:grid-cols-[1fr_360px] xl:gap-5">
       <Panel>
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
@@ -195,12 +196,22 @@ function Dashboard({ state }: { state: AppState }) {
             </p>
           </div>
           {leader && (
-            <div className="rounded-lg border border-[#16a34a]/30 bg-[#edf8ef] px-4 py-3">
+            <div className="rounded-lg border border-[#16a34a]/30 bg-[#edf8ef] px-3 py-2 sm:px-4 sm:py-3">
               <p className="text-xs font-black uppercase tracking-[0.1em] text-[#0f766e]">Leader</p>
-              <p className="mt-1 text-xl font-black">{leader.name}</p>
+              <p className="mt-1 text-lg font-black sm:text-xl">{leader.name}</p>
               <p className="text-sm font-black text-[#0f766e]">{leader.totalChampionshipPoints} pts</p>
             </div>
           )}
+        </div>
+
+        <div className="mt-4 grid grid-cols-3 gap-2">
+          {podium.map((player, index) => (
+            <div key={player.id} className="rounded-lg border border-black/10 bg-[#fafafa] px-2.5 py-2">
+              <p className="text-xs font-black uppercase tracking-[0.1em] text-black/40">#{index + 1}</p>
+              <p className="mt-1 truncate text-sm font-black">{player.name}</p>
+              <p className="text-lg font-black text-[#0f766e]">{player.totalChampionshipPoints}</p>
+            </div>
+          ))}
         </div>
 
         <ChampionshipLineChart players={rankedPlayers.slice(0, 8)} timeline={timeline} />
@@ -210,14 +221,14 @@ function Dashboard({ state }: { state: AppState }) {
         <SectionTitle icon={Trophy} title="Points Table" />
         <div className="mt-4 space-y-2">
           {rankedPlayers.map((player, index) => (
-            <div key={player.id} className="grid grid-cols-[auto_1fr_auto] items-center gap-3 rounded-lg border border-black/10 bg-white p-3">
-              <div className="grid h-10 w-10 place-items-center rounded-lg bg-[#17201b] font-black text-white">{index + 1}</div>
+            <div key={player.id} className="grid grid-cols-[auto_1fr_auto] items-center gap-2 rounded-lg border border-black/10 bg-white p-2.5 sm:gap-3 sm:p-3">
+              <div className="grid h-9 w-9 place-items-center rounded-lg bg-[#17201b] text-sm font-black text-white sm:h-10 sm:w-10 sm:text-base">{index + 1}</div>
               <div className="min-w-0">
                 <p className="truncate font-black">{player.name}</p>
                 <p className="text-sm font-semibold text-black/50">{player.sessionsPlayed} sessions</p>
               </div>
               <div className="text-right">
-                <p className="text-xl font-black text-[#0f766e]">{player.totalChampionshipPoints}</p>
+                <p className="text-lg font-black text-[#0f766e] sm:text-xl">{player.totalChampionshipPoints}</p>
                 <p className="text-xs font-black uppercase tracking-[0.1em] text-black/40">pts</p>
               </div>
             </div>
@@ -805,8 +816,8 @@ function ChampionshipLineChart({ players, timeline }: { players: Player[]; timel
 
   return (
     <div className="mt-5">
-      <div className="overflow-x-auto rounded-lg border border-black/10 bg-white p-3">
-        <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Championship points progression" className="min-w-[680px]">
+      <div className="rounded-lg border border-black/10 bg-white p-2 sm:p-3">
+        <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Championship points progression" className="h-56 w-full sm:h-auto">
           {[0, 0.25, 0.5, 0.75, 1].map((tick) => {
             const tickY = padding.top + plotHeight - tick * plotHeight;
             return (
@@ -841,11 +852,11 @@ function ChampionshipLineChart({ players, timeline }: { players: Player[]; timel
         </svg>
       </div>
 
-      <div className="mt-3 flex flex-wrap gap-2">
+      <div className="mt-3 grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
         {players.map((player, index) => (
-          <span key={player.id} className="inline-flex items-center gap-2 rounded-lg border border-black/10 px-2.5 py-1 text-xs font-black">
+          <span key={player.id} className="inline-flex min-w-0 items-center gap-2 rounded-lg border border-black/10 px-2.5 py-1 text-xs font-black">
             <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: colors[index % colors.length] }} />
-            {player.name}
+            <span className="truncate">{player.name}</span>
           </span>
         ))}
       </div>
