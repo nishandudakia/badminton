@@ -260,11 +260,11 @@ export function clearMatchScore(state: AppState, sessionId: string, matchId: str
 export function finalizeSession(state: AppState, sessionId: string): AppState {
   const session = state.sessions.find((item) => item.id === sessionId);
   if (!session) return state;
-  if (session.matches.length > 0 && session.matches.some((match) => !match.score)) return state;
 
   const includeFinalsInAwards = session.finalsCountTowardsLeaderboard ?? true;
-  const results = calculateSessionResults(session, { includeFinals: includeFinalsInAwards });
   const now = new Date().toISOString();
+  const sessionWithDefaultScores = scoreUnplayedMatchesWithDefaults(session, now);
+  const results = calculateSessionResults(sessionWithDefaultScores, { includeFinals: includeFinalsInAwards });
   const historyWithoutSession = state.history.filter((item) => item.sessionId !== sessionId);
   const awards = results.map<ChampionshipHistory>((result) => ({
     id: createId("history"),
@@ -286,7 +286,7 @@ export function finalizeSession(state: AppState, sessionId: string): AppState {
     sessions: state.sessions.map((item) =>
       item.id === sessionId
         ? {
-            ...item,
+            ...sessionWithDefaultScores,
             results,
             status: "finalized",
             finalizedAt: now,
@@ -296,6 +296,29 @@ export function finalizeSession(state: AppState, sessionId: string): AppState {
     ),
     history: [...historyWithoutSession, ...awards],
   });
+}
+
+function scoreUnplayedMatchesWithDefaults(session: Session, enteredAt: string): Session {
+  const teamA = Math.ceil(session.targetScore / 2);
+  const teamB = session.targetScore - teamA;
+
+  return {
+    ...session,
+    matches: session.matches.map((match) =>
+      match.score
+        ? match
+        : {
+            ...match,
+            score: {
+              teamA,
+              teamB,
+              overrideTarget: false,
+              enteredAt,
+            },
+            status: "complete",
+          },
+    ),
+  };
 }
 
 export function reopenSession(state: AppState, sessionId: string): AppState {

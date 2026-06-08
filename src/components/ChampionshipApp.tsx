@@ -31,7 +31,7 @@ import { calculateSessionResults, sortChampionshipPlayers } from "@/lib/scoring"
 import { loadPersistedState, savePersistedState } from "@/lib/repository";
 import type { AppState, Match, MatchScore, Player, Session } from "@/lib/types";
 
-type Mode = "dashboard" | "create" | "tournament";
+type Mode = "dashboard" | "create" | "tournament" | "past";
 
 export function ChampionshipApp() {
   const [state, setState] = useState<AppState>(() => createInitialState());
@@ -104,6 +104,10 @@ export function ChampionshipApp() {
               <LineChart size={16} />
               Dashboard
             </Button>
+            <Button variant={mode === "past" ? "primary" : "ghost"} onClick={() => setMode("past")}>
+              <Trophy size={16} />
+              Past tournaments
+            </Button>
             {currentTournament && (
               <Button variant={mode === "tournament" ? "primary" : "ghost"} onClick={() => setMode("tournament")}>
                 <Play size={16} />
@@ -116,6 +120,14 @@ export function ChampionshipApp() {
         <div className="py-5">
           {mode === "dashboard" ? (
             <Dashboard state={state} />
+          ) : mode === "past" ? (
+            <PastTournaments
+              state={state}
+              onDelete={(sessionId) => {
+                commit((current) => deleteSession(current, sessionId));
+                showToast("Past tournament deleted");
+              }}
+            />
           ) : mode === "create" || !currentTournament ? (
             <CreateTournament
               state={state}
@@ -180,6 +192,71 @@ export function ChampionshipApp() {
         </div>
       )}
     </main>
+  );
+}
+
+function PastTournaments({ state, onDelete }: { state: AppState; onDelete: (sessionId: string) => void }) {
+  const pastSessions = state.sessions
+    .filter((session) => session.status === "finalized")
+    .sort((a, b) => (b.finalizedAt ?? b.date).localeCompare(a.finalizedAt ?? a.date));
+
+  return (
+    <Panel>
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <SectionTitle icon={Trophy} title="Past Tournaments" />
+          <p className="mt-2 text-sm font-semibold text-black/55">
+            {pastSessions.length ? `${pastSessions.length} completed tournaments saved.` : "Completed tournaments will appear here."}
+          </p>
+        </div>
+      </div>
+
+      <div className="mt-5 space-y-3">
+        {pastSessions.map((session) => {
+          const results = session.results ?? calculateSessionResults(session);
+          const winner = results[0];
+          const completedMatches = session.matches.filter((match) => match.score).length;
+
+          return (
+            <article
+              key={session.id}
+              className="grid gap-3 rounded-lg border border-black/10 bg-[#fafafa] p-4 lg:grid-cols-[1fr_auto] lg:items-center"
+            >
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h3 className="text-lg font-black tracking-normal">Tournament {session.date}</h3>
+                  <StatusBadge complete />
+                </div>
+                <div className="mt-2 grid gap-2 text-sm font-semibold text-black/55 sm:grid-cols-4">
+                  <p>{session.playerIds.length} players</p>
+                  <p>{completedMatches}/{session.matches.length || completedMatches} matches</p>
+                  <p>{session.targetScore} target</p>
+                  <p>{session.courtCount} {session.courtCount === 1 ? "court" : "courts"}</p>
+                </div>
+                {winner && (
+                  <p className="mt-3 text-sm font-black text-[#0f766e]">
+                    Winner: {getPlayerName(state, winner.playerId)} ({winner.sessionPoints} pts)
+                  </p>
+                )}
+              </div>
+              <IconButton
+                title="Delete past tournament"
+                danger
+                onClick={() => {
+                  if (window.confirm(`Delete tournament ${session.date}? This removes its championship points.`)) {
+                    onDelete(session.id);
+                  }
+                }}
+              >
+                <Trash2 size={18} />
+              </IconButton>
+            </article>
+          );
+        })}
+      </div>
+
+      {!pastSessions.length && <EmptyInline text="Submit championship points from a tournament to move it into this tab." />}
+    </Panel>
   );
 }
 
@@ -358,7 +435,6 @@ function TournamentWorkspace({
   const completedMatches = session.matches.filter((match) => match.score).length;
   const leaderboard = calculateSessionResults(session);
   const groupedMatches = groupMatchesByRound(session.matches);
-  const allMatchesScored = session.matches.length > 0 && completedMatches === session.matches.length;
   const submitted = session.status === "finalized";
 
   return (
@@ -416,15 +492,12 @@ function TournamentWorkspace({
           </div>
           <Button
             className="mt-4 w-full"
-            disabled={!allMatchesScored || submitted}
+            disabled={submitted}
             onClick={onSubmitChampionshipPoints}
           >
             <Trophy size={16} />
             {submitted ? "Championship points submitted" : "Submit championship points"}
           </Button>
-          {!allMatchesScored && (
-            <p className="mt-3 text-sm font-bold text-black/45">Complete every match to submit these points.</p>
-          )}
         </Panel>
       </aside>
     </div>
@@ -641,11 +714,10 @@ function LeaderboardRow({ state, result }: { state: AppState; result: ReturnType
 }
 
 function findCurrentTournament(state: AppState) {
-  const sessionsWithMatches = state.sessions.filter((session) => session.matches.length > 0);
+  const sessionsWithMatches = state.sessions.filter((session) => session.matches.length > 0 && session.status !== "finalized");
   return (
     sessionsWithMatches.find((session) => session.id === state.activeSessionId) ??
-    sessionsWithMatches.find((session) => session.status === "active") ??
-    sessionsWithMatches[0]
+    sessionsWithMatches.find((session) => session.status === "active")
   );
 }
 
