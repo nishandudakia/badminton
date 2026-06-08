@@ -2,6 +2,7 @@ import type { AppState, ChampionshipHistory, Player } from "./types";
 
 const now = "2026-06-07T00:00:00.000Z";
 const referenceSource = "round-score-reference-v1";
+const legacyReferenceSources = new Set(["round-score-reference-v1"]);
 
 type HistoricalRoundScore = {
   round: number;
@@ -201,10 +202,6 @@ export function createInitialState(): AppState {
 }
 
 export function ensureReferenceHistory(state: AppState): AppState {
-  if (state.history.some((event) => event.metadata?.source === referenceSource)) {
-    return state;
-  }
-
   const players = [...state.players];
   for (const seed of regularPlayerSeeds) {
     if (players.some((player) => player.name.toLowerCase() === seed.name.toLowerCase())) continue;
@@ -225,12 +222,21 @@ export function ensureReferenceHistory(state: AppState): AppState {
     .map((round) => buildReferenceSession(round, playersByName))
     .reverse();
   const referenceHistory = historicalRoundScores.flatMap((round) => buildReferenceHistory(round, playersByName));
-  const retainedHistory = state.history.filter((event) => event.metadata?.label !== "Existing championship standings");
+  const referenceSessionIds = new Set(historicalRoundScores.map((round) => referenceSessionId(round.round)));
+  const referenceHistoryIds = new Set(referenceHistory.map((event) => event.id));
+  const retainedSessions = state.sessions.filter((session) => !referenceSessionIds.has(session.id));
+  const retainedHistory = state.history.filter(
+    (event) =>
+      !referenceHistoryIds.has(event.id) &&
+      !referenceSessionIds.has(event.sessionId ?? "") &&
+      !legacyReferenceSources.has(String(event.metadata?.source ?? "")) &&
+      event.metadata?.label !== "Existing championship standings",
+  );
 
   return {
     ...state,
     players,
-    sessions: [...state.sessions, ...referenceSessions],
+    sessions: [...retainedSessions, ...referenceSessions],
     history: [...retainedHistory, ...referenceHistory],
   };
 }
