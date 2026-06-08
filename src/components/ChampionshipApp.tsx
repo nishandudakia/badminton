@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  LineChart,
   Check,
   Play,
   Plus,
@@ -26,11 +27,11 @@ import {
   updateSessionBasics,
 } from "@/lib/championship";
 import { createInitialState } from "@/lib/seed";
-import { calculateSessionResults } from "@/lib/scoring";
+import { calculateSessionResults, sortChampionshipPlayers } from "@/lib/scoring";
 import { loadPersistedState, savePersistedState } from "@/lib/repository";
-import type { AppState, Match, MatchScore, Session } from "@/lib/types";
+import type { AppState, Match, MatchScore, Player, Session } from "@/lib/types";
 
-type Mode = "create" | "tournament";
+type Mode = "dashboard" | "create" | "tournament";
 
 export function ChampionshipApp() {
   const [state, setState] = useState<AppState>(() => createInitialState());
@@ -43,7 +44,7 @@ export function ChampionshipApp() {
       void loadPersistedState().then((loadedState) => {
         const nextState = recalculateSeason(loadedState);
         setState(nextState);
-        setMode(findCurrentTournament(nextState) ? "tournament" : "create");
+        setMode("dashboard");
         document.documentElement.classList.remove("dark");
         setHasLoaded(true);
       });
@@ -99,6 +100,10 @@ export function ChampionshipApp() {
               <Plus size={16} />
               New tournament
             </Button>
+            <Button variant={mode === "dashboard" ? "primary" : "ghost"} onClick={() => setMode("dashboard")}>
+              <LineChart size={16} />
+              Dashboard
+            </Button>
             {currentTournament && (
               <Button variant={mode === "tournament" ? "primary" : "ghost"} onClick={() => setMode("tournament")}>
                 <Play size={16} />
@@ -109,7 +114,9 @@ export function ChampionshipApp() {
         </header>
 
         <div className="py-5">
-          {mode === "create" || !currentTournament ? (
+          {mode === "dashboard" ? (
+            <Dashboard state={state} />
+          ) : mode === "create" || !currentTournament ? (
             <CreateTournament
               state={state}
               onCreate={(playerIds, targetScore, courtCount) => {
@@ -169,6 +176,55 @@ export function ChampionshipApp() {
         </div>
       )}
     </main>
+  );
+}
+
+function Dashboard({ state }: { state: AppState }) {
+  const rankedPlayers = sortChampionshipPlayers(state.players.filter((player) => !player.isGuest && !player.archivedAt));
+  const timeline = buildChampionshipTimeline(state);
+  const leader = rankedPlayers[0];
+
+  return (
+    <div className="grid gap-5 xl:grid-cols-[1fr_360px]">
+      <Panel>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <SectionTitle icon={LineChart} title="Championship Dashboard" />
+            <p className="mt-2 text-sm font-semibold text-black/55">
+              Current standings after {timeline.length ? timeline.at(-1)?.label : "no recorded rounds"}.
+            </p>
+          </div>
+          {leader && (
+            <div className="rounded-lg border border-[#16a34a]/30 bg-[#edf8ef] px-4 py-3">
+              <p className="text-xs font-black uppercase tracking-[0.1em] text-[#0f766e]">Leader</p>
+              <p className="mt-1 text-xl font-black">{leader.name}</p>
+              <p className="text-sm font-black text-[#0f766e]">{leader.totalChampionshipPoints} pts</p>
+            </div>
+          )}
+        </div>
+
+        <ChampionshipLineChart players={rankedPlayers.slice(0, 8)} timeline={timeline} />
+      </Panel>
+
+      <Panel>
+        <SectionTitle icon={Trophy} title="Points Table" />
+        <div className="mt-4 space-y-2">
+          {rankedPlayers.map((player, index) => (
+            <div key={player.id} className="grid grid-cols-[auto_1fr_auto] items-center gap-3 rounded-lg border border-black/10 bg-white p-3">
+              <div className="grid h-10 w-10 place-items-center rounded-lg bg-[#17201b] font-black text-white">{index + 1}</div>
+              <div className="min-w-0">
+                <p className="truncate font-black">{player.name}</p>
+                <p className="text-sm font-semibold text-black/50">{player.sessionsPlayed} sessions</p>
+              </div>
+              <div className="text-right">
+                <p className="text-xl font-black text-[#0f766e]">{player.totalChampionshipPoints}</p>
+                <p className="text-xs font-black uppercase tracking-[0.1em] text-black/40">pts</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      </Panel>
+    </div>
   );
 }
 
@@ -360,8 +416,9 @@ function MatchCard({
   onClearScore: (matchId: string) => void;
   onTeamsChange: (matchId: string, teamA: string[], teamB: string[]) => void;
 }) {
-  const [scoreA, setScoreA] = useState(match.score?.teamA ?? 0);
-  const [scoreB, setScoreB] = useState(match.score?.teamB ?? 0);
+  const defaultTeamAScore = Math.ceil(session.targetScore / 2);
+  const [scoreA, setScoreA] = useState(match.score?.teamA ?? defaultTeamAScore);
+  const [scoreB, setScoreB] = useState(match.score?.teamB ?? session.targetScore - defaultTeamAScore);
   const selectedPlayerIds = [...match.teamA, ...match.teamB];
   const duplicate = selectedPlayerIds.some((playerId, index) => selectedPlayerIds.indexOf(playerId) !== index);
   const completed = Boolean(match.score);
@@ -398,9 +455,14 @@ function MatchCard({
 
       {duplicate && <p className="mt-3 text-sm font-bold text-[#dc2626]">A player is selected more than once.</p>}
 
-      <div className="mt-4 grid gap-3 sm:grid-cols-[1fr_1fr_auto_auto] sm:items-end">
-        <NumberField label="Team A score" value={scoreA} min={0} onChange={setScoreA} />
-        <NumberField label="Team B score" value={scoreB} min={0} onChange={setScoreB} />
+      <div className="mt-4 grid gap-3 lg:grid-cols-[1fr_auto_auto] lg:items-end">
+        <ScoreSlider
+          targetScore={session.targetScore}
+          teamAScore={scoreA}
+          teamBScore={scoreB}
+          onTeamAScoreChange={setScoreA}
+          onTeamBScoreChange={setScoreB}
+        />
         <Button onClick={() => onSetScore(match, { teamA: scoreA, teamB: scoreB, overrideTarget: scoreA + scoreB !== session.targetScore })}>
           <Save size={16} />
           Save
@@ -410,6 +472,71 @@ function MatchCard({
         </IconButton>
       </div>
     </article>
+  );
+}
+
+function ScoreSlider({
+  targetScore,
+  teamAScore,
+  teamBScore,
+  onTeamAScoreChange,
+  onTeamBScoreChange,
+}: {
+  targetScore: number;
+  teamAScore: number;
+  teamBScore: number;
+  onTeamAScoreChange: (value: number) => void;
+  onTeamBScoreChange: (value: number) => void;
+}) {
+  const sliderMax = Math.max(targetScore, teamAScore + teamBScore, 1);
+  const isOverride = teamAScore + teamBScore !== targetScore;
+
+  function setSliderValue(value: number) {
+    const nextTeamA = Math.max(0, Math.min(targetScore, Math.round(value)));
+    onTeamAScoreChange(nextTeamA);
+    onTeamBScoreChange(targetScore - nextTeamA);
+  }
+
+  return (
+    <div className="min-w-0 rounded-lg border border-black/10 bg-[#fafafa] p-3">
+      <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3">
+        <ScoreNumberField label="Team A" value={teamAScore} onChange={onTeamAScoreChange} />
+        <div className="text-center text-xs font-black uppercase tracking-[0.14em] text-black/35">vs</div>
+        <ScoreNumberField label="Team B" value={teamBScore} onChange={onTeamBScoreChange} />
+      </div>
+      <input
+        type="range"
+        min={0}
+        max={sliderMax}
+        value={Math.min(teamAScore, sliderMax)}
+        onInput={(event) => setSliderValue(Number(event.currentTarget.value))}
+        onChange={(event) => setSliderValue(Number(event.target.value))}
+        className="score-slider mt-3 w-full appearance-none bg-transparent"
+        aria-label="Set score split"
+      />
+      <div className="flex items-center justify-between text-xs font-black uppercase tracking-[0.1em] text-black/40">
+        <span>0</span>
+        <span className={isOverride ? "text-[#dc2626]" : "text-[#0f766e]"}>
+          {isOverride ? "Override" : `${targetScore} total`}
+        </span>
+        <span>{targetScore}</span>
+      </div>
+    </div>
+  );
+}
+
+function ScoreNumberField({ label, value, onChange }: { label: string; value: number; onChange: (value: number) => void }) {
+  return (
+    <label className="block min-w-0">
+      <span className="mb-1 block text-xs font-black uppercase tracking-[0.1em] text-black/45">{label}</span>
+      <input
+        type="number"
+        min={0}
+        value={value}
+        onChange={(event) => onChange(Math.max(0, Math.round(Number(event.target.value) || 0)))}
+        className="h-11 w-full rounded-lg border border-black/10 bg-white px-3 text-center text-lg font-black outline-none focus:border-[#16a34a]"
+      />
+    </label>
   );
 }
 
@@ -615,6 +742,114 @@ function StatusBadge({ complete }: { complete: boolean }) {
     <span className={`rounded-lg px-2.5 py-1 text-xs font-black uppercase tracking-[0.1em] ${complete ? "bg-[#e7f7e9] text-[#166534]" : "bg-black/5 text-black/55"}`}>
       {complete ? "Complete" : "Open"}
     </span>
+  );
+}
+
+type TimelinePoint = {
+  label: string;
+  totals: Map<string, number>;
+};
+
+function buildChampionshipTimeline(state: AppState): TimelinePoint[] {
+  const eventsBySession = new Map<string, { label: string; sort: string; events: typeof state.history }>();
+
+  for (const event of state.history) {
+    const key = event.sessionId ?? event.id;
+    const session = event.sessionId ? state.sessions.find((item) => item.id === event.sessionId) : undefined;
+    const existing = eventsBySession.get(key) ?? {
+      label: String(event.metadata?.sessionDate ?? session?.date ?? "Adjustment"),
+      sort: event.awardedAt,
+      events: [],
+    };
+    existing.events.push(event);
+    eventsBySession.set(key, existing);
+  }
+
+  const totals = new Map(state.players.map((player) => [player.id, 0]));
+  return Array.from(eventsBySession.values())
+    .sort((a, b) => a.sort.localeCompare(b.sort))
+    .map((bucket) => {
+      for (const event of bucket.events) {
+        totals.set(event.playerId, (totals.get(event.playerId) ?? 0) + event.points);
+      }
+
+      return {
+        label: bucket.label,
+        totals: new Map(totals),
+      };
+    });
+}
+
+function ChampionshipLineChart({ players, timeline }: { players: Player[]; timeline: TimelinePoint[] }) {
+  const width = 720;
+  const height = 280;
+  const padding = { top: 18, right: 18, bottom: 42, left: 42 };
+  const plotWidth = width - padding.left - padding.right;
+  const plotHeight = height - padding.top - padding.bottom;
+  const maxPoints = Math.max(1, ...players.flatMap((player) => timeline.map((point) => point.totals.get(player.id) ?? 0)));
+  const colors = ["#16a34a", "#2563eb", "#dc2626", "#9333ea", "#ea580c", "#0891b2", "#4f46e5", "#65a30d"];
+
+  function x(index: number) {
+    return padding.left + (timeline.length <= 1 ? 0 : (index / (timeline.length - 1)) * plotWidth);
+  }
+
+  function y(points: number) {
+    return padding.top + plotHeight - (points / maxPoints) * plotHeight;
+  }
+
+  function pathFor(player: Player) {
+    return timeline
+      .map((point, index) => `${index === 0 ? "M" : "L"} ${x(index).toFixed(1)} ${y(point.totals.get(player.id) ?? 0).toFixed(1)}`)
+      .join(" ");
+  }
+
+  return (
+    <div className="mt-5">
+      <div className="overflow-x-auto rounded-lg border border-black/10 bg-white p-3">
+        <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Championship points progression" className="min-w-[680px]">
+          {[0, 0.25, 0.5, 0.75, 1].map((tick) => {
+            const tickY = padding.top + plotHeight - tick * plotHeight;
+            return (
+              <g key={tick}>
+                <line x1={padding.left} y1={tickY} x2={width - padding.right} y2={tickY} stroke="#e5e7eb" />
+                <text x={padding.left - 10} y={tickY + 4} textAnchor="end" className="fill-black/45 text-[11px] font-bold">
+                  {Math.round(maxPoints * tick)}
+                </text>
+              </g>
+            );
+          })}
+
+          {timeline.map((point, index) => {
+            if (index !== 0 && index !== timeline.length - 1 && index % 2 === 1) return null;
+            return (
+              <text key={point.label} x={x(index)} y={height - 12} textAnchor="middle" className="fill-black/45 text-[11px] font-bold">
+                {point.label.replace("Round ", "R")}
+              </text>
+            );
+          })}
+
+          {players.map((player, index) => (
+            <path key={player.id} d={pathFor(player)} fill="none" stroke={colors[index % colors.length]} strokeWidth={3} strokeLinecap="round" strokeLinejoin="round" />
+          ))}
+
+          {players.map((player, index) => {
+            const last = timeline.at(-1);
+            if (!last) return null;
+            const points = last.totals.get(player.id) ?? 0;
+            return <circle key={`${player.id}-dot`} cx={x(timeline.length - 1)} cy={y(points)} r={4} fill={colors[index % colors.length]} />;
+          })}
+        </svg>
+      </div>
+
+      <div className="mt-3 flex flex-wrap gap-2">
+        {players.map((player, index) => (
+          <span key={player.id} className="inline-flex items-center gap-2 rounded-lg border border-black/10 px-2.5 py-1 text-xs font-black">
+            <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: colors[index % colors.length] }} />
+            {player.name}
+          </span>
+        ))}
+      </div>
+    </div>
   );
 }
 
