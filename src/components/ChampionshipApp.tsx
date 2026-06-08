@@ -499,8 +499,7 @@ function ScoreSlider({
   onTeamAScoreChange: (value: number) => void;
   onTeamBScoreChange: (value: number) => void;
 }) {
-  const sliderMax = Math.max(targetScore, teamAScore + teamBScore, 1);
-  const isOverride = teamAScore + teamBScore !== targetScore;
+  const sliderMax = Math.max(targetScore, 1);
 
   function setSliderValue(value: number) {
     const nextTeamA = Math.max(0, Math.min(targetScore, Math.round(value)));
@@ -511,9 +510,9 @@ function ScoreSlider({
   return (
     <div className="min-w-0 rounded-lg border border-black/10 bg-[#fafafa] p-3">
       <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3">
-        <ScoreNumberField label="Team A" value={teamAScore} onChange={onTeamAScoreChange} />
+        <ScoreReadout label="Team A" value={teamAScore} />
         <div className="text-center text-xs font-black uppercase tracking-[0.14em] text-black/35">vs</div>
-        <ScoreNumberField label="Team B" value={teamBScore} onChange={onTeamBScoreChange} />
+        <ScoreReadout label="Team B" value={teamBScore} />
       </div>
       <input
         type="range"
@@ -527,27 +526,21 @@ function ScoreSlider({
       />
       <div className="flex items-center justify-between text-xs font-black uppercase tracking-[0.1em] text-black/40">
         <span>0</span>
-        <span className={isOverride ? "text-[#dc2626]" : "text-[#0f766e]"}>
-          {isOverride ? "Override" : `${targetScore} total`}
-        </span>
+        <span className="text-[#0f766e]">{targetScore} total</span>
         <span>{targetScore}</span>
       </div>
     </div>
   );
 }
 
-function ScoreNumberField({ label, value, onChange }: { label: string; value: number; onChange: (value: number) => void }) {
+function ScoreReadout({ label, value }: { label: string; value: number }) {
   return (
-    <label className="block min-w-0">
+    <div className="block min-w-0">
       <span className="mb-1 block text-xs font-black uppercase tracking-[0.1em] text-black/45">{label}</span>
-      <input
-        type="number"
-        min={0}
-        value={value}
-        onChange={(event) => onChange(Math.max(0, Math.round(Number(event.target.value) || 0)))}
-        className="h-11 w-full rounded-lg border border-black/10 bg-white px-3 text-center text-lg font-black outline-none focus:border-[#16a34a]"
-      />
-    </label>
+      <span className="grid h-11 w-full place-items-center rounded-lg border border-black/10 bg-white px-3 text-center text-lg font-black">
+        {value}
+      </span>
+    </div>
   );
 }
 
