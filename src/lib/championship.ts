@@ -260,6 +260,7 @@ export function clearMatchScore(state: AppState, sessionId: string, matchId: str
 export function finalizeSession(state: AppState, sessionId: string): AppState {
   const session = state.sessions.find((item) => item.id === sessionId);
   if (!session) return state;
+  if (session.matches.length > 0 && session.matches.some((match) => !match.score)) return state;
 
   const includeFinalsInAwards = session.finalsCountTowardsLeaderboard ?? true;
   const results = calculateSessionResults(session, { includeFinals: includeFinalsInAwards });

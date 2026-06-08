@@ -7,7 +7,6 @@ import {
   Plus,
   RefreshCw,
   RotateCcw,
-  Save,
   Trash2,
   Trophy,
   UserPlus,
@@ -20,6 +19,7 @@ import {
   clearMatchScore,
   createSession,
   deleteSession,
+  finalizeSession,
   recalculateSeason,
   regenerateSessionSchedule,
   setMatchScore,
@@ -143,7 +143,6 @@ export function ChampionshipApp() {
               session={currentTournament}
               onSetScore={(match, score) => {
                 commit((current) => setMatchScore(current, currentTournament.id, match.id, score));
-                showToast("Score saved");
               }}
               onClearScore={(matchId) => {
                 commit((current) => clearMatchScore(current, currentTournament.id, matchId));
@@ -164,6 +163,11 @@ export function ChampionshipApp() {
                 commit((current) => deleteSession(current, currentTournament.id));
                 setMode("create");
                 showToast("Tournament deleted");
+              }}
+              onSubmitChampionshipPoints={() => {
+                commit((current) => finalizeSession(current, currentTournament.id));
+                setMode("dashboard");
+                showToast("Championship points submitted");
               }}
             />
           )}
@@ -339,6 +343,7 @@ function TournamentWorkspace({
   onBasicsChange,
   onRegenerate,
   onDelete,
+  onSubmitChampionshipPoints,
 }: {
   state: AppState;
   session: Session;
@@ -348,10 +353,13 @@ function TournamentWorkspace({
   onBasicsChange: (targetScore: number, courtCount: number) => void;
   onRegenerate: () => void;
   onDelete: () => void;
+  onSubmitChampionshipPoints: () => void;
 }) {
   const completedMatches = session.matches.filter((match) => match.score).length;
   const leaderboard = calculateSessionResults(session);
   const groupedMatches = groupMatchesByRound(session.matches);
+  const allMatchesScored = session.matches.length > 0 && completedMatches === session.matches.length;
+  const submitted = session.status === "finalized";
 
   return (
     <div className="grid gap-5 xl:grid-cols-[1fr_360px]">
@@ -385,7 +393,7 @@ function TournamentWorkspace({
             </div>
             {round.matches.map((match) => (
               <MatchCard
-                key={`${match.id}-${match.score?.enteredAt ?? "empty"}-${session.targetScore}`}
+                key={`${match.id}-${session.targetScore}`}
                 state={state}
                 session={session}
                 match={match}
@@ -406,6 +414,17 @@ function TournamentWorkspace({
               <LeaderboardRow key={result.playerId} state={state} result={result} />
             ))}
           </div>
+          <Button
+            className="mt-4 w-full"
+            disabled={!allMatchesScored || submitted}
+            onClick={onSubmitChampionshipPoints}
+          >
+            <Trophy size={16} />
+            {submitted ? "Championship points submitted" : "Submit championship points"}
+          </Button>
+          {!allMatchesScored && (
+            <p className="mt-3 text-sm font-bold text-black/45">Complete every match to submit these points.</p>
+          )}
         </Panel>
       </aside>
     </div>
@@ -428,11 +447,27 @@ function MatchCard({
   onTeamsChange: (matchId: string, teamA: string[], teamB: string[]) => void;
 }) {
   const defaultTeamAScore = Math.ceil(session.targetScore / 2);
-  const [scoreA, setScoreA] = useState(match.score?.teamA ?? defaultTeamAScore);
-  const [scoreB, setScoreB] = useState(match.score?.teamB ?? session.targetScore - defaultTeamAScore);
+  const [draftScore, setDraftScore] = useState<{ teamA: number; teamB: number } | null>(null);
+  const scoreA = draftScore?.teamA ?? match.score?.teamA ?? defaultTeamAScore;
+  const scoreB = draftScore?.teamB ?? match.score?.teamB ?? session.targetScore - defaultTeamAScore;
   const selectedPlayerIds = [...match.teamA, ...match.teamB];
   const duplicate = selectedPlayerIds.some((playerId, index) => selectedPlayerIds.indexOf(playerId) !== index);
   const completed = Boolean(match.score);
+
+  useEffect(() => {
+    if (!draftScore || duplicate) return;
+
+    const timer = window.setTimeout(() => {
+      onSetScore(match, {
+        teamA: draftScore.teamA,
+        teamB: draftScore.teamB,
+        overrideTarget: draftScore.teamA + draftScore.teamB !== session.targetScore,
+      });
+      setDraftScore(null);
+    }, 450);
+
+    return () => window.clearTimeout(timer);
+  }, [draftScore, duplicate, match, onSetScore, session.targetScore]);
 
   return (
     <article className={`rounded-lg border p-4 ${completed ? "border-[#16a34a]/50 bg-[#f4fbf5]" : "border-black/10 bg-white"}`}>
@@ -471,14 +506,18 @@ function MatchCard({
           targetScore={session.targetScore}
           teamAScore={scoreA}
           teamBScore={scoreB}
-          onTeamAScoreChange={setScoreA}
-          onTeamBScoreChange={setScoreB}
+          onScoreChange={(nextScoreA, nextScoreB) => {
+            setDraftScore({ teamA: nextScoreA, teamB: nextScoreB });
+          }}
         />
-        <Button onClick={() => onSetScore(match, { teamA: scoreA, teamB: scoreB, overrideTarget: scoreA + scoreB !== session.targetScore })}>
-          <Save size={16} />
-          Save
-        </Button>
-        <IconButton title="Clear score" disabled={!completed} onClick={() => onClearScore(match.id)}>
+        <IconButton
+          title="Clear score"
+          disabled={!completed}
+          onClick={() => {
+            setDraftScore(null);
+            onClearScore(match.id);
+          }}
+        >
           <RotateCcw size={18} />
         </IconButton>
       </div>
@@ -490,21 +529,18 @@ function ScoreSlider({
   targetScore,
   teamAScore,
   teamBScore,
-  onTeamAScoreChange,
-  onTeamBScoreChange,
+  onScoreChange,
 }: {
   targetScore: number;
   teamAScore: number;
   teamBScore: number;
-  onTeamAScoreChange: (value: number) => void;
-  onTeamBScoreChange: (value: number) => void;
+  onScoreChange: (teamA: number, teamB: number) => void;
 }) {
   const sliderMax = Math.max(targetScore, 1);
 
   function setSliderValue(value: number) {
     const nextTeamA = Math.max(0, Math.min(targetScore, Math.round(value)));
-    onTeamAScoreChange(nextTeamA);
-    onTeamBScoreChange(targetScore - nextTeamA);
+    onScoreChange(nextTeamA, targetScore - nextTeamA);
   }
 
   return (
@@ -596,7 +632,9 @@ function LeaderboardRow({ state, result }: { state: AppState; result: ReturnType
       </div>
       <div className="text-right">
         <p className="text-xl font-black text-[#0f766e]">{result.sessionPoints}</p>
-        <p className="text-xs font-black uppercase tracking-[0.1em] text-black/40">pts</p>
+        <p className="text-xs font-black uppercase tracking-[0.1em] text-black/40">
+          {result.championshipPointsAwarded} champ pts
+        </p>
       </div>
     </div>
   );
