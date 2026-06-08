@@ -35,7 +35,6 @@ import {
   Legend,
   Line,
   LineChart,
-  ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
@@ -91,14 +90,14 @@ type UndoEntry = {
   previous?: MatchScore;
 };
 
-const navItems: Array<{ id: View; label: string; icon: typeof Trophy }> = [
-  { id: "dashboard", label: "Dashboard", icon: Gauge },
+const navItems: Array<{ id: View; label: string; mobileLabel?: string; icon: typeof Trophy }> = [
+  { id: "dashboard", label: "Dashboard", mobileLabel: "Home", icon: Gauge },
   { id: "create", label: "Create", icon: CalendarPlus },
   { id: "active", label: "Active", icon: Play },
   { id: "results", label: "Results", icon: Medal },
   { id: "leaderboard", label: "Table", icon: Table2 },
-  { id: "players", label: "Players", icon: Users },
   { id: "stats", label: "Stats", icon: BarChart3 },
+  { id: "players", label: "Players", icon: Users },
   { id: "settings", label: "Settings", icon: Settings },
 ];
 
@@ -368,8 +367,8 @@ export function ChampionshipApp() {
       </div>
 
       <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-black/10 bg-white/94 px-2 py-2 backdrop-blur dark:border-white/10 dark:bg-[#151a17]/94 lg:hidden">
-        <div className="mx-auto grid max-w-xl grid-cols-5 gap-1">
-          {navItems.slice(0, 5).map((item) => (
+        <div className="mx-auto flex max-w-xl gap-1 overflow-x-auto pb-1">
+          {navItems.map((item) => (
             <MobileNavButton key={item.id} item={item} active={view === item.id} onClick={() => setView(item.id)} />
           ))}
         </div>
@@ -1176,9 +1175,9 @@ function StatsPage({ state }: { state: AppState }) {
     <div className="space-y-5">
       <Panel>
         <SectionTitle icon={Activity} title="Progression" />
-        <div className="mt-4 h-72">
-          <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={progression}>
+        <ChartFrame>
+          {(width, height) => (
+            <LineChart data={progression} width={width} height={height}>
               <CartesianGrid strokeDasharray="3 3" stroke="rgba(120,120,120,0.22)" />
               <XAxis dataKey="label" tick={{ fontSize: 12 }} />
               <YAxis tick={{ fontSize: 12 }} />
@@ -1188,24 +1187,24 @@ function StatsPage({ state }: { state: AppState }) {
                 <Line key={player.id} type="monotone" dataKey={player.name} stroke={chartColors[index % chartColors.length]} strokeWidth={2} dot={false} />
               ))}
             </LineChart>
-          </ResponsiveContainer>
-        </div>
+          )}
+        </ChartFrame>
       </Panel>
 
       <section className="grid gap-5 xl:grid-cols-2">
         <Panel>
           <SectionTitle icon={BarChart3} title="Points Per Session" />
-          <div className="mt-4 h-72">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={pointsPerSession}>
+          <ChartFrame>
+            {(width, height) => (
+              <BarChart data={pointsPerSession} width={width} height={height}>
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(120,120,120,0.22)" />
                 <XAxis dataKey="player" tick={{ fontSize: 12 }} />
                 <YAxis tick={{ fontSize: 12 }} />
                 <Tooltip />
                 <Bar dataKey="points" fill="#16a34a" radius={[6, 6, 0, 0]} />
               </BarChart>
-            </ResponsiveContainer>
-          </div>
+            )}
+          </ChartFrame>
         </Panel>
 
         <Panel>
@@ -1255,6 +1254,37 @@ function StatsPage({ state }: { state: AppState }) {
           </div>
         </Panel>
       </section>
+    </div>
+  );
+}
+
+function ChartFrame({ children }: { children: (width: number, height: number) => React.ReactNode }) {
+  const frameRef = useRef<HTMLDivElement>(null);
+  const [width, setWidth] = useState(0);
+  const height = 288;
+
+  useEffect(() => {
+    const element = frameRef.current;
+    if (!element) return;
+
+    const updateWidth = () => {
+      setWidth(Math.max(280, Math.floor(element.getBoundingClientRect().width)));
+    };
+
+    updateWidth();
+    const observer = typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(updateWidth);
+    observer?.observe(element);
+    window.addEventListener("resize", updateWidth);
+
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener("resize", updateWidth);
+    };
+  }, []);
+
+  return (
+    <div ref={frameRef} className="mt-4 h-72 min-w-0 overflow-hidden">
+      {width > 0 ? children(width, height) : null}
     </div>
   );
 }
@@ -1474,12 +1504,12 @@ function MobileNavButton({ item, active, onClick }: { item: (typeof navItems)[nu
     <button
       type="button"
       onClick={onClick}
-      className={`flex h-12 flex-col items-center justify-center rounded-lg text-[11px] font-black transition ${
+      className={`flex h-12 w-14 shrink-0 flex-col items-center justify-center rounded-lg text-[10px] font-black transition ${
         active ? "bg-[#17201b] text-white dark:bg-[#f5f4ec] dark:text-[#101412]" : "text-black/62 dark:text-white/62"
       }`}
     >
       <Icon size={17} />
-      {item.label}
+      {item.mobileLabel ?? item.label}
     </button>
   );
 }

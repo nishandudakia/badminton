@@ -406,9 +406,7 @@ export function recalculateSeason(state: AppState): AppState {
   for (const session of state.sessions) {
     if (session.status !== "finalized" || !session.results) continue;
     for (const result of session.results) {
-      if (result.matchesPlayed > 0 || result.championshipPointsAwarded > 0) {
-        sessionsByPlayer.get(result.playerId)?.add(session.id);
-      }
+      sessionsByPlayer.get(result.playerId)?.add(session.id);
     }
   }
 

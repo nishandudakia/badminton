@@ -1,4 +1,4 @@
-import { createInitialState } from "./seed";
+import { createInitialState, ensureReferenceHistory } from "./seed";
 import type { AppState } from "./types";
 
 const storageKey = "badminton-championship-state-v1";
@@ -23,7 +23,12 @@ export function loadStoredState(): AppState {
       return seeded;
     }
 
-    return parsed;
+    const migrated = ensureReferenceHistory(parsed);
+    if (migrated !== parsed) {
+      saveStoredState(migrated);
+    }
+
+    return migrated;
   } catch {
     const seeded = createInitialState();
     saveStoredState(seeded);

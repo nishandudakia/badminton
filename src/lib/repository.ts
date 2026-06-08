@@ -1,4 +1,4 @@
-import { createInitialState } from "./seed";
+import { createInitialState, ensureReferenceHistory } from "./seed";
 import { hasSupabaseConfig, supabase } from "./supabase";
 import { loadStoredState, saveStoredState } from "./storage";
 import type { AppState, ChampionshipHistory, Match, MatchScore, Player, Session, SessionResult, SessionStatus } from "./types";
@@ -75,7 +75,7 @@ export async function loadPersistedState(): Promise<AppState> {
   }
 
   try {
-    const state = await loadSupabaseState();
+    const state = ensureReferenceHistory(await loadSupabaseState());
     saveStoredState(state);
     return state;
   } catch {
@@ -142,12 +142,12 @@ async function loadSupabaseState(): Promise<AppState> {
     mapSessionFromRow(row, matchesBySessionId.get(row.id) ?? [], resultsBySessionId.get(row.id)),
   );
 
-  return {
+  return ensureReferenceHistory({
     players,
     sessions,
     history: ((historyResponse.data ?? []) as HistoryRow[]).map(mapHistoryFromRow),
     activeSessionId: sessions.find((session) => session.status === "active")?.id,
-  };
+  });
 }
 
 async function saveSupabaseState(state: AppState) {

@@ -14,20 +14,32 @@ export function getProgressionData(state: AppState) {
   const players = getChampionshipLeaderboard(state.players).slice(0, 8);
   const totals = new Map(players.map((player) => [player.id, 0]));
   const events = [...state.history].sort((a, b) => a.awardedAt.localeCompare(b.awardedAt));
+  const groups = new Map<string, { label: string; order: string; events: typeof events }>();
   const rows: Array<Record<string, string | number>> = [];
 
   for (const event of events) {
-    if (!totals.has(event.playerId)) continue;
-    totals.set(event.playerId, (totals.get(event.playerId) ?? 0) + event.points);
+    const roundNumber = typeof event.metadata?.referenceRound === "number" ? event.metadata.referenceRound : undefined;
+    const key = roundNumber ? `reference-round-${roundNumber}` : event.sessionId ? `session-${event.sessionId}` : event.id;
     const label =
       typeof event.metadata?.sessionDate === "string"
         ? event.metadata.sessionDate
         : event.reason === "initial_seed"
           ? "Seed"
           : event.awardedAt.slice(0, 10);
+    const order = roundNumber ? `0000-${String(roundNumber).padStart(4, "0")}` : event.awardedAt;
+    const group = groups.get(key) ?? { label, order, events: [] };
+    group.events.push(event);
+    groups.set(key, group);
+  }
+
+  for (const group of Array.from(groups.values()).sort((a, b) => a.order.localeCompare(b.order))) {
+    for (const event of group.events) {
+      if (!totals.has(event.playerId)) continue;
+      totals.set(event.playerId, (totals.get(event.playerId) ?? 0) + event.points);
+    }
 
     rows.push({
-      label,
+      label: group.label,
       ...Object.fromEntries(players.map((player) => [player.name, totals.get(player.id) ?? 0])),
     });
   }
@@ -36,7 +48,7 @@ export function getProgressionData(state: AppState) {
 }
 
 export function getPointsPerSessionData(state: AppState) {
-  return state.sessions
+  return sortSessionsForStats(state.sessions)
     .filter((session) => session.status === "finalized" && session.results)
     .flatMap((session) =>
       session.results!.map((result) => ({
@@ -46,6 +58,20 @@ export function getPointsPerSessionData(state: AppState) {
       })),
     )
     .slice(-40);
+}
+
+function sortSessionsForStats(sessions: AppState["sessions"]) {
+  return [...sessions].sort((a, b) => getSessionSortValue(a) - getSessionSortValue(b));
+}
+
+function getSessionSortValue(session: AppState["sessions"][number]) {
+  const referenceRound = /^Round (\d+)$/.exec(session.date)?.[1];
+  if (referenceRound) {
+    return Number(referenceRound);
+  }
+
+  const timestamp = Date.parse(session.finalizedAt ?? session.createdAt ?? session.date);
+  return 10_000 + (Number.isFinite(timestamp) ? timestamp : 0);
 }
 
 export function getPlayerAverages(state: AppState) {
