@@ -6,14 +6,14 @@ const basePath = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
 const assetPath = (path: string) => `${basePath}${path}`;
 
 export const metadata: Metadata = {
-  title: "Badminton Championship",
-  description: "Weekly badminton tournament scheduler, scoring, and championship table.",
-  applicationName: "Badminton Championship",
+  title: "Badminton Tournament Generator",
+  description: "Generate a badminton tournament, track scores, and follow the live leaderboard.",
+  applicationName: "Badminton Tournament Generator",
   manifest: assetPath("/manifest.json"),
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",
-    title: "Badminton Championship",
+    title: "Badminton Tournament",
   },
   icons: {
     icon: assetPath("/icon.svg"),
