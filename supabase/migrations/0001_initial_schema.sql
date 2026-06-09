@@ -19,6 +19,8 @@ create table if not exists sessions (
   player_ids uuid[] not null default '{}'::uuid[],
   status text not null default 'draft' check (status in ('draft', 'active', 'finalized')),
   finalized_at timestamptz,
+  include_finals boolean not null default true,
+  finals_count_towards_leaderboard boolean not null default true,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   import_source text,
@@ -33,6 +35,8 @@ create table if not exists matches (
   team_a_player_ids uuid[] not null,
   team_b_player_ids uuid[] not null,
   bye_player_ids uuid[] not null default '{}'::uuid[],
+  round_number integer,
+  is_final boolean not null default false,
   status text not null default 'scheduled' check (status in ('scheduled', 'complete')),
   created_at timestamptz not null default now(),
   unique (session_id, match_number)

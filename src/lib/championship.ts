@@ -169,26 +169,31 @@ export function updateMatchTeams(
 ): AppState {
   return {
     ...state,
-    sessions: state.sessions.map((session) =>
-      session.id === sessionId
-        ? {
-            ...session,
-            matches: session.matches.map((match) =>
-              match.id === matchId
-                ? {
-                    ...match,
-                    teamA: nextTeams.teamA,
-                    teamB: nextTeams.teamB,
-                    byes: session.playerIds.filter(
-                      (playerId) => ![...nextTeams.teamA, ...nextTeams.teamB].includes(playerId),
-                    ),
-                  }
-                : match,
-            ),
-            updatedAt: new Date().toISOString(),
-          }
-        : session,
-    ),
+    sessions: state.sessions.map((session) => {
+      if (session.id !== sessionId) return session;
+
+      const editedMatch = session.matches.find((match) => match.id === matchId);
+      const matches = session.matches
+        .filter((match) => editedMatch?.isFinal || !match.isFinal)
+        .map((match) =>
+          match.id === matchId
+            ? {
+                ...match,
+                teamA: nextTeams.teamA,
+                teamB: nextTeams.teamB,
+                byes: session.playerIds.filter(
+                  (playerId) => ![...nextTeams.teamA, ...nextTeams.teamB].includes(playerId),
+                ),
+              }
+            : match,
+        );
+
+      return {
+        ...session,
+        matches,
+        updatedAt: new Date().toISOString(),
+      };
+    }),
   };
 }
 
@@ -233,6 +238,7 @@ function ensureFinalsGenerated(session: Session): Session {
   const finals = generateFinalsMatches({
     sessionId: session.id,
     existingMatchCount: normalMatches.length,
+    finalRoundNumber: Math.max(...normalMatches.map((match) => match.roundNumber ?? 0)) + 1,
     leaderboard: interimResults,
   });
 
@@ -243,17 +249,20 @@ function ensureFinalsGenerated(session: Session): Session {
 export function clearMatchScore(state: AppState, sessionId: string, matchId: string): AppState {
   return {
     ...state,
-    sessions: state.sessions.map((session) =>
-      session.id === sessionId
-        ? {
-            ...session,
-            matches: session.matches.map((match) =>
-              match.id === matchId ? { ...match, score: undefined, status: "scheduled" } : match,
-            ),
-            updatedAt: new Date().toISOString(),
-          }
-        : session,
-    ),
+    sessions: state.sessions.map((session) => {
+      if (session.id !== sessionId) return session;
+
+      const clearedMatch = session.matches.find((match) => match.id === matchId);
+      const matches = session.matches
+        .filter((match) => clearedMatch?.isFinal || !match.isFinal)
+        .map((match) => (match.id === matchId ? { ...match, score: undefined, status: "scheduled" as const } : match));
+
+      return {
+        ...session,
+        matches,
+        updatedAt: new Date().toISOString(),
+      };
+    }),
   };
 }
 

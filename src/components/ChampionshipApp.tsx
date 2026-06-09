@@ -131,14 +131,14 @@ export function ChampionshipApp() {
           ) : mode === "create" || !currentTournament ? (
             <CreateTournament
               state={state}
-              onCreate={(playerIds, targetScore, courtCount) => {
+              onCreate={(playerIds, targetScore, courtCount, includeFinals) => {
                 commit((current) =>
                   createSession(current, {
                     playerIds,
                     targetScore,
                     courtCount,
-                    includeFinals: false,
-                    finalsCountTowardsLeaderboard: false,
+                    includeFinals,
+                    finalsCountTowardsLeaderboard: includeFinals,
                   }),
                 );
                 setMode("tournament");
@@ -326,13 +326,14 @@ function CreateTournament({
   onAddPlayer,
 }: {
   state: AppState;
-  onCreate: (playerIds: string[], targetScore: number, courtCount: number) => void;
+  onCreate: (playerIds: string[], targetScore: number, courtCount: number, includeFinals: boolean) => void;
   onAddPlayer: (name: string) => void;
 }) {
   const activePlayers = state.players.filter((player) => !player.archivedAt);
   const [selected, setSelected] = useState<string[]>(activePlayers.filter((player) => !player.isGuest).map((player) => player.id));
   const [targetScore, setTargetScore] = useState(15);
   const [courtCount, setCourtCount] = useState(1);
+  const [includeFinals, setIncludeFinals] = useState(true);
   const [newPlayer, setNewPlayer] = useState("");
 
   function togglePlayer(playerId: string) {
@@ -401,7 +402,19 @@ function CreateTournament({
 
         <Panel>
           <p className="text-sm font-black text-black/55">{selected.length} players selected</p>
-          <Button className="mt-3 w-full" disabled={selected.length < 4} onClick={() => onCreate(selected, targetScore, courtCount)}>
+          <label className="mt-3 flex cursor-pointer items-center justify-between gap-3 rounded-lg border border-black/10 bg-[#fafafa] p-3">
+            <span>
+              <span className="block text-sm font-black text-[#17201b]">Finals</span>
+              <span className="mt-1 block text-xs font-bold text-black/50">Seeded from the leaderboard</span>
+            </span>
+            <input
+              type="checkbox"
+              checked={includeFinals}
+              onChange={(event) => setIncludeFinals(event.target.checked)}
+              className="h-5 w-5 accent-[#16a34a]"
+            />
+          </label>
+          <Button className="mt-3 w-full" disabled={selected.length < 4} onClick={() => onCreate(selected, targetScore, courtCount, includeFinals)}>
             <Play size={16} />
             Generate schedule
           </Button>
@@ -436,6 +449,7 @@ function TournamentWorkspace({
   const leaderboard = calculateSessionResults(session);
   const groupedMatches = groupMatchesByRound(session.matches);
   const submitted = session.status === "finalized";
+  const hasFinals = session.matches.some((match) => match.isFinal);
 
   return (
     <div className="grid gap-5 xl:grid-cols-[1fr_360px]">
@@ -447,6 +461,9 @@ function TournamentWorkspace({
               <p className="mt-2 text-sm font-semibold text-black/55">
                 {completedMatches}/{session.matches.length} matches scored
               </p>
+              {session.includeFinals && !hasFinals && (
+                <p className="mt-1 text-sm font-black text-[#0f766e]">Finals unlock after the scheduled rounds.</p>
+              )}
             </div>
             <div className="flex flex-wrap items-end gap-2">
               <NumberField label="Target" value={session.targetScore} min={1} onChange={(value) => onBasicsChange(value, session.courtCount)} />
@@ -490,6 +507,11 @@ function TournamentWorkspace({
               <LeaderboardRow key={result.playerId} state={state} result={result} />
             ))}
           </div>
+          {hasFinals && (
+            <p className="mt-3 rounded-lg border border-[#16a34a]/30 bg-[#edf8ef] p-3 text-sm font-black text-[#0f766e]">
+              Finals count toward championship points.
+            </p>
+          )}
           <Button
             className="mt-4 w-full"
             disabled={submitted}
@@ -547,7 +569,7 @@ function MatchCard({
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <p className="text-xs font-black uppercase tracking-[0.14em] text-[#0f766e]">
-            Match {match.matchNumber} / Court {match.courtNumber}
+            {match.isFinal ? "Final" : `Match ${match.matchNumber}`} / Court {match.courtNumber}
           </p>
           <p className="mt-1 text-sm font-semibold text-black/55">{completed ? "Scored" : "Not scored"}</p>
         </div>
@@ -725,8 +747,13 @@ function groupMatchesByRound(matches: Match[]) {
   const groups = new Map<string, { key: string; label: string; matches: Match[]; sort: number }>();
   matches.forEach((match, index) => {
     const roundNumber = match.roundNumber ?? Math.floor(index / 2) + 1;
-    const key = `round-${roundNumber}`;
-    const existing = groups.get(key) ?? { key, label: `Round ${roundNumber}`, matches: [], sort: roundNumber };
+    const key = match.isFinal ? "finals" : `round-${roundNumber}`;
+    const existing = groups.get(key) ?? {
+      key,
+      label: match.isFinal ? "Finals" : `Round ${roundNumber}`,
+      matches: [],
+      sort: match.isFinal ? Number.MAX_SAFE_INTEGER : roundNumber,
+    };
     existing.matches.push(match);
     groups.set(key, existing);
   });

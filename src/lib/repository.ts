@@ -22,6 +22,8 @@ type SessionRow = {
   player_ids: string[] | null;
   status: SessionStatus;
   finalized_at: string | null;
+  include_finals: boolean | null;
+  finals_count_towards_leaderboard: boolean | null;
   created_at: string;
   updated_at: string;
 };
@@ -34,6 +36,8 @@ type MatchRow = {
   team_a_player_ids: string[];
   team_b_player_ids: string[];
   bye_player_ids: string[];
+  round_number: number | null;
+  is_final: boolean | null;
   status: "scheduled" | "complete";
   created_at: string;
 };
@@ -241,8 +245,8 @@ function mapSessionFromRow(row: SessionRow, matches: Match[], results?: SessionR
     matches,
     status: row.status,
     finalizedAt: row.finalized_at ?? undefined,
-    finalsCountTowardsLeaderboard: true,
-    includeFinals: true,
+    finalsCountTowardsLeaderboard: row.finals_count_towards_leaderboard ?? true,
+    includeFinals: row.include_finals ?? true,
     results,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -258,6 +262,8 @@ function mapSessionToRow(session: Session): Record<string, unknown> {
     player_ids: session.playerIds,
     status: session.status,
     finalized_at: session.finalizedAt ?? null,
+    include_finals: session.includeFinals,
+    finals_count_towards_leaderboard: session.finalsCountTowardsLeaderboard,
     created_at: session.createdAt,
     updated_at: session.updatedAt,
   };
@@ -272,8 +278,8 @@ function mapMatchFromRow(row: MatchRow, score?: MatchScore): Match {
     teamA: row.team_a_player_ids,
     teamB: row.team_b_player_ids,
     byes: row.bye_player_ids,
-    roundNumber: Math.floor((row.match_number - 1) / 2) + 1,
-    isFinal: false,
+    roundNumber: row.round_number ?? Math.floor((row.match_number - 1) / 2) + 1,
+    isFinal: row.is_final ?? false,
     score,
     status: row.status,
   };
@@ -288,6 +294,8 @@ function mapMatchToRow(match: Match): Record<string, unknown> {
     team_a_player_ids: match.teamA,
     team_b_player_ids: match.teamB,
     bye_player_ids: match.byes,
+    round_number: match.roundNumber ?? null,
+    is_final: Boolean(match.isFinal),
     status: match.status,
   };
 }

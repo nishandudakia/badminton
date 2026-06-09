@@ -88,42 +88,32 @@ export function generateAmericanoSchedule({
 export function generateFinalsMatches({
   sessionId,
   existingMatchCount,
+  finalRoundNumber,
   leaderboard,
 }: {
   sessionId: string;
   existingMatchCount: number;
+  finalRoundNumber?: number;
   leaderboard: SessionResult[];
 }): Match[] {
   const rankedPlayerIds = [...leaderboard].sort((a, b) => a.position - b.position || b.sessionPoints - a.sessionPoints).map((row) => row.playerId);
   if (rankedPlayerIds.length < 4) return [];
 
-  const finalRoundNumber = Math.floor(existingMatchCount / 2) + 1;
-  const finals: Match[] = [
-    createMatch(
-      sessionId,
-      existingMatchCount + 1,
-      finalRoundNumber,
-      1,
-      [rankedPlayerIds[0], rankedPlayerIds[1]],
-      [rankedPlayerIds[2], rankedPlayerIds[3]],
-      rankedPlayerIds.slice(4),
-      true,
-    ),
-  ];
+  const roundNumber = finalRoundNumber ?? Math.floor(existingMatchCount / 2) + 1;
+  const finals: Match[] = [];
 
-  if (rankedPlayerIds.length >= 8) {
-    finals.push(
-      createMatch(
-        sessionId,
-        existingMatchCount + 2,
-        finalRoundNumber,
-        2,
-        [rankedPlayerIds[4], rankedPlayerIds[5]],
-        [rankedPlayerIds[6], rankedPlayerIds[7]],
-        rankedPlayerIds.slice(8),
-        true,
-      ),
-    );
+  for (let index = 0; index + 3 < rankedPlayerIds.length; index += 4) {
+    const finalistGroup = rankedPlayerIds.slice(index, index + 4);
+    finals.push(createMatch(
+      sessionId,
+      existingMatchCount + finals.length + 1,
+      roundNumber,
+      finals.length + 1,
+      [finalistGroup[0], finalistGroup[3]],
+      [finalistGroup[1], finalistGroup[2]],
+      rankedPlayerIds.filter((playerId) => !finalistGroup.includes(playerId)),
+      true,
+    ));
   }
 
   return finals;
