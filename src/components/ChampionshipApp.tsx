@@ -3,6 +3,7 @@
 import {
   LineChart,
   Check,
+  Copy,
   Play,
   Plus,
   RefreshCw,
@@ -119,7 +120,7 @@ export function ChampionshipApp() {
 
         <div className="py-5">
           {mode === "dashboard" ? (
-            <Dashboard state={state} />
+            <Dashboard state={state} onToast={showToast} />
           ) : mode === "past" ? (
             <PastTournaments
               state={state}
@@ -260,11 +261,23 @@ function PastTournaments({ state, onDelete }: { state: AppState; onDelete: (sess
   );
 }
 
-function Dashboard({ state }: { state: AppState }) {
+function Dashboard({ state, onToast }: { state: AppState; onToast: (message: string) => void }) {
   const rankedPlayers = sortChampionshipPlayers(state.players.filter((player) => !player.isGuest && !player.archivedAt));
   const timeline = buildChampionshipTimeline(state);
   const leader = rankedPlayers[0];
   const podium = rankedPlayers.slice(0, 3);
+
+  async function copyPointsTable() {
+    if (!rankedPlayers.length) return;
+
+    const table = formatChampionshipPointsTable(rankedPlayers);
+    try {
+      await copyTextToClipboard(table);
+      onToast("Championship points table copied");
+    } catch {
+      onToast("Could not copy points table");
+    }
+  }
 
   return (
     <div className="grid gap-4 xl:grid-cols-[1fr_360px] xl:gap-5">
@@ -299,7 +312,12 @@ function Dashboard({ state }: { state: AppState }) {
       </Panel>
 
       <Panel>
-        <SectionTitle icon={Trophy} title="Points Table" />
+        <div className="flex items-center justify-between gap-3">
+          <SectionTitle icon={Trophy} title="Points Table" />
+          <IconButton title="Copy points table" disabled={!rankedPlayers.length} onClick={copyPointsTable}>
+            <Copy size={18} />
+          </IconButton>
+        </div>
         <div className="mt-4 space-y-2">
           {rankedPlayers.map((player, index) => (
             <div key={player.id} className="grid grid-cols-[auto_1fr_auto] items-center gap-2 rounded-lg border border-black/10 bg-white p-2.5 sm:gap-3 sm:p-3">
@@ -762,6 +780,40 @@ function groupMatchesByRound(matches: Match[]) {
 
 function getPlayerName(state: AppState, playerId: string) {
   return state.players.find((player) => player.id === playerId)?.name ?? "Unknown";
+}
+
+function formatChampionshipPointsTable(players: Player[]) {
+  return players
+    .map((player, index) => `${index + 1}. ${player.name} — ${player.totalChampionshipPoints}`)
+    .join("\n");
+}
+
+async function copyTextToClipboard(text: string) {
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return;
+    } catch {
+      // Some browser surfaces expose the Clipboard API but deny writes.
+    }
+  }
+
+  const textArea = document.createElement("textarea");
+  textArea.value = text;
+  textArea.setAttribute("readonly", "");
+  textArea.style.position = "fixed";
+  textArea.style.left = "-9999px";
+  document.body.appendChild(textArea);
+  textArea.select();
+
+  try {
+    const copied = document.execCommand("copy");
+    if (!copied) {
+      throw new Error("Copy command failed");
+    }
+  } finally {
+    document.body.removeChild(textArea);
+  }
 }
 
 function SectionTitle({ icon: Icon, title }: { icon: typeof Trophy; title: string }) {
