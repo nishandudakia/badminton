@@ -128,15 +128,28 @@ function generateSinglesSchedule(sessionId: string, playerIds: string[]): Match[
 
   for (let a = 0; a < playerIds.length - 1; a += 1) {
     for (let b = a + 1; b < playerIds.length; b += 1) {
+      const playerA = playerIds[a];
+      const playerB = playerIds[b];
+      const byes = playerIds.filter((playerId) => playerId !== playerA && playerId !== playerB);
+
       matches.push(
         createMatch(
           sessionId,
           matches.length + 1,
           matches.length + 1,
           1,
-          [playerIds[a]],
-          [playerIds[b]],
-          playerIds.filter((playerId) => playerId !== playerIds[a] && playerId !== playerIds[b]),
+          [playerA],
+          [playerB],
+          byes,
+        ),
+        createMatch(
+          sessionId,
+          matches.length + 2,
+          matches.length + 2,
+          1,
+          [playerB],
+          [playerA],
+          byes,
         ),
       );
     }
