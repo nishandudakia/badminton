@@ -44,8 +44,12 @@ export function generateAmericanoSchedule({
   targetRounds,
 }: GeneratorOptions): Match[] {
   const uniquePlayerIds = Array.from(new Set(playerIds));
-  if (uniquePlayerIds.length < 4) {
+  if (uniquePlayerIds.length < 2) {
     return [];
+  }
+
+  if (uniquePlayerIds.length < 4) {
+    return generateSinglesSchedule(sessionId, uniquePlayerIds);
   }
 
   if (uniquePlayerIds.length === 8 && targetRounds === undefined) {
@@ -119,6 +123,28 @@ export function generateFinalsMatches({
   return finals;
 }
 
+function generateSinglesSchedule(sessionId: string, playerIds: string[]): Match[] {
+  const matches: Match[] = [];
+
+  for (let a = 0; a < playerIds.length - 1; a += 1) {
+    for (let b = a + 1; b < playerIds.length; b += 1) {
+      matches.push(
+        createMatch(
+          sessionId,
+          matches.length + 1,
+          matches.length + 1,
+          1,
+          [playerIds[a]],
+          [playerIds[b]],
+          playerIds.filter((playerId) => playerId !== playerIds[a] && playerId !== playerIds[b]),
+        ),
+      );
+    }
+  }
+
+  return matches;
+}
+
 export function getFairnessSummary(matches: Match[], playerIds: string[]): FairnessSummary {
   const summary = new Map<string, { partners: Set<string>; opponents: Set<string>; matches: number; byes: number }>();
   const partnerships = new Map<PairKey, number>();
@@ -138,8 +164,12 @@ export function getFairnessSummary(matches: Match[], playerIds: string[]): Fairn
       if (row) row.byes += 1;
     }
 
-    addPartnershipSummary(summary, partnerships, match.teamA[0], match.teamA[1]);
-    addPartnershipSummary(summary, partnerships, match.teamB[0], match.teamB[1]);
+    if (match.teamA.length > 1) {
+      addPartnershipSummary(summary, partnerships, match.teamA[0], match.teamA[1]);
+    }
+    if (match.teamB.length > 1) {
+      addPartnershipSummary(summary, partnerships, match.teamB[0], match.teamB[1]);
+    }
     for (const playerA of match.teamA) {
       for (const playerB of match.teamB) {
         summary.get(playerA)?.opponents.add(playerB);

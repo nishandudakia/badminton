@@ -94,7 +94,7 @@ export function createSession(state: AppState, input: SessionInput): AppState {
   const date = input.date ?? new Date().toISOString().slice(0, 10);
   const targetScore = Math.max(1, Math.round(input.targetScore || 15));
   const courtCount = Math.max(1, Math.round(input.courtCount || 1));
-  const includeFinals = input.includeFinals ?? uniquePlayerIds.length >= 4;
+  const includeFinals = uniquePlayerIds.length >= 4 && (input.includeFinals ?? true);
 
   const session: Session = {
     id: sessionId,

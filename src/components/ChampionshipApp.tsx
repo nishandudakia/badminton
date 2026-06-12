@@ -353,6 +353,7 @@ function CreateTournament({
   const [courtCount, setCourtCount] = useState(1);
   const [includeFinals, setIncludeFinals] = useState(true);
   const [newPlayer, setNewPlayer] = useState("");
+  const canIncludeFinals = selected.length >= 4;
 
   function togglePlayer(playerId: string) {
     setSelected((current) => (current.includes(playerId) ? current.filter((id) => id !== playerId) : [...current, playerId]));
@@ -395,7 +396,7 @@ function CreateTournament({
           })}
         </div>
 
-        {!activePlayers.length && <EmptyInline text="Add at least four players to generate a tournament." />}
+        {!activePlayers.length && <EmptyInline text="Add at least two players to generate a tournament." />}
       </Panel>
 
       <div className="space-y-5">
@@ -423,16 +424,19 @@ function CreateTournament({
           <label className="mt-3 flex cursor-pointer items-center justify-between gap-3 rounded-lg border border-black/10 bg-[#fafafa] p-3">
             <span>
               <span className="block text-sm font-black text-[#17201b]">Finals</span>
-              <span className="mt-1 block text-xs font-bold text-black/50">Seeded from the leaderboard</span>
+              <span className="mt-1 block text-xs font-bold text-black/50">
+                {canIncludeFinals ? "Seeded from the leaderboard" : "Available for 4+ players"}
+              </span>
             </span>
             <input
               type="checkbox"
-              checked={includeFinals}
+              checked={canIncludeFinals && includeFinals}
+              disabled={!canIncludeFinals}
               onChange={(event) => setIncludeFinals(event.target.checked)}
               className="h-5 w-5 accent-[#16a34a]"
             />
           </label>
-          <Button className="mt-3 w-full" disabled={selected.length < 4} onClick={() => onCreate(selected, targetScore, courtCount, includeFinals)}>
+          <Button className="mt-3 w-full" disabled={selected.length < 2} onClick={() => onCreate(selected, targetScore, courtCount, canIncludeFinals && includeFinals)}>
             <Play size={16} />
             Generate schedule
           </Button>
@@ -600,6 +604,7 @@ function MatchCard({
           value={match.teamA}
           playerIds={session.playerIds}
           state={state}
+          slots={Math.max(match.teamA.length, 1)}
           onChange={(teamA) => onTeamsChange(match.id, teamA, match.teamB)}
         />
         <div className="text-center text-xs font-black uppercase tracking-[0.14em] text-black/35">vs</div>
@@ -608,6 +613,7 @@ function MatchCard({
           value={match.teamB}
           playerIds={session.playerIds}
           state={state}
+          slots={Math.max(match.teamB.length, 1)}
           onChange={(teamB) => onTeamsChange(match.id, match.teamA, teamB)}
         />
       </div>
@@ -698,19 +704,23 @@ function TeamEditor({
   value,
   playerIds,
   state,
+  slots,
   onChange,
 }: {
   label: string;
   value: string[];
   playerIds: string[];
   state: AppState;
+  slots?: number;
   onChange: (next: string[]) => void;
 }) {
+  const slotCount = Math.max(1, slots ?? 2);
+
   return (
     <div className="rounded-lg border border-black/10 bg-[#fafafa] p-3">
       <p className="mb-2 text-xs font-black uppercase tracking-[0.12em] text-black/45">{label}</p>
-      <div className="grid gap-2 sm:grid-cols-2">
-        {[0, 1].map((index) => (
+      <div className={slotCount === 1 ? "grid gap-2" : "grid gap-2 sm:grid-cols-2"}>
+        {Array.from({ length: slotCount }, (_, index) => (
           <select
             key={index}
             value={value[index] ?? ""}
