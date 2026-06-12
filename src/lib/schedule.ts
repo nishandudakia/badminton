@@ -125,6 +125,7 @@ export function generateFinalsMatches({
 
 function generateSinglesSchedule(sessionId: string, playerIds: string[]): Match[] {
   const matches: Match[] = [];
+  const pairings: Array<{ playerA: string; playerB: string; byes: string[] }> = [];
 
   for (let a = 0; a < playerIds.length - 1; a += 1) {
     for (let b = a + 1; b < playerIds.length; b += 1) {
@@ -132,30 +133,23 @@ function generateSinglesSchedule(sessionId: string, playerIds: string[]): Match[
       const playerB = playerIds[b];
       const byes = playerIds.filter((playerId) => playerId !== playerA && playerId !== playerB);
 
-      matches.push(
-        createMatch(
-          sessionId,
-          matches.length + 1,
-          matches.length + 1,
-          1,
-          [playerA],
-          [playerB],
-          byes,
-        ),
-        createMatch(
-          sessionId,
-          matches.length + 2,
-          matches.length + 2,
-          1,
-          [playerB],
-          [playerA],
-          byes,
-        ),
-      );
+      pairings.push({ playerA, playerB, byes });
     }
   }
 
+  for (const pairing of pairings) {
+    matches.push(createSinglesMatch(sessionId, matches.length + 1, pairing.playerA, pairing.playerB, pairing.byes));
+  }
+
+  for (const pairing of pairings) {
+    matches.push(createSinglesMatch(sessionId, matches.length + 1, pairing.playerB, pairing.playerA, pairing.byes));
+  }
+
   return matches;
+}
+
+function createSinglesMatch(sessionId: string, matchNumber: number, playerA: string, playerB: string, byes: string[]): Match {
+  return createMatch(sessionId, matchNumber, matchNumber, 1, [playerA], [playerB], byes);
 }
 
 export function getFairnessSummary(matches: Match[], playerIds: string[]): FairnessSummary {
