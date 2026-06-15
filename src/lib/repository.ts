@@ -152,7 +152,7 @@ async function saveGoogleSheetsState(state: AppState): Promise<boolean> {
 }
 
 function apiBasePath() {
-  const basePath = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
+  const basePath = typeof process !== "undefined" ? (process.env.NEXT_PUBLIC_BASE_PATH ?? "") : "";
   return basePath && basePath !== "/" ? basePath : "";
 }
 
