@@ -33,7 +33,7 @@ type ScoreRow = {
 
 const appStateSheetName = "app_state";
 const writableScoreSheetName = "all_scores_so_far.csv";
-const scoreSheetCandidates = ["scores", "Scores", "all_scores_so_far", "all_scores_so_far.csv", "All Scores So Far", "Sheet1"];
+const scoreSheetCandidates = [writableScoreSheetName, "scores", "Scores", "all_scores_so_far", "All Scores So Far", "Sheet1"];
 const chunkSize = 45_000;
 const sheetsScope = "https://www.googleapis.com/auth/spreadsheets";
 
@@ -46,10 +46,9 @@ export function hasGoogleSheetsConfig() {
 export async function loadGoogleSheetsState(): Promise<AppState> {
   const spreadsheetId = getSpreadsheetId();
   const token = await getAccessToken();
-  await ensureSheet(spreadsheetId, appStateSheetName, token);
 
-  const storedState = await readStoredState(spreadsheetId, token);
   const scoreRows = await readScoreRows(spreadsheetId, token);
+  const storedState = await readStoredState(spreadsheetId, token);
   if (scoreRows.length) {
     const scoreState = buildStateFromScoreRows(scoreRows);
     if (storedState && finalizedSessionCount(storedState) > finalizedSessionCount(scoreState)) {
