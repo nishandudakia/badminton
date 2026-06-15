@@ -1,4 +1,4 @@
-const CACHE_NAME = "badminton-championship-v2";
+const CACHE_NAME = "badminton-championship-v3";
 const scopeUrl = new URL(self.registration.scope);
 const APP_SHELL = ["manifest.json", "icon.svg"].map((path) => new URL(path, scopeUrl).toString());
 
@@ -26,6 +26,11 @@ self.addEventListener("fetch", (event) => {
   const url = new URL(event.request.url);
   const isScopedRequest = url.origin === self.location.origin && url.href.startsWith(scopeUrl.href);
   if (!isScopedRequest || url.pathname.endsWith("/sw.js")) return;
+
+  if (url.pathname.startsWith(`${scopeUrl.pathname.replace(/\/$/, "")}/api/`)) {
+    event.respondWith(fetch(event.request));
+    return;
+  }
 
   if (event.request.mode === "navigate" || event.request.destination === "document") {
     event.respondWith(networkFirst(event.request, new URL("", scopeUrl).toString()));

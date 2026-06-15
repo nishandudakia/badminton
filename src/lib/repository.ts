@@ -121,10 +121,10 @@ export async function savePersistedState(state: AppState) {
 
 async function loadGoogleSheetsState(): Promise<AppState | undefined> {
   try {
-    const response = await fetch(`${apiBasePath()}/api/state`, {
+    const response = await fetch(`${apiBasePath()}/api/state?ts=${Date.now()}`, {
       method: "GET",
       cache: "no-store",
-      headers: { Accept: "application/json" },
+      headers: { Accept: "application/json", "Cache-Control": "no-store" },
     });
 
     if (!response.ok) return undefined;
