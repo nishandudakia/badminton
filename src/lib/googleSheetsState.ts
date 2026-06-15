@@ -32,6 +32,7 @@ type ScoreRow = {
 };
 
 const appStateSheetName = "app_state";
+const writableScoreSheetName = "all_scores_so_far.csv";
 const scoreSheetCandidates = ["scores", "Scores", "all_scores_so_far", "all_scores_so_far.csv", "All Scores So Far", "Sheet1"];
 const chunkSize = 45_000;
 const sheetsScope = "https://www.googleapis.com/auth/spreadsheets";
@@ -48,13 +49,13 @@ export async function loadGoogleSheetsState(): Promise<AppState> {
   await ensureSheet(spreadsheetId, appStateSheetName, token);
 
   const storedState = await readStoredState(spreadsheetId, token);
-  if (storedState) {
-    return storedState;
-  }
-
   const scoreRows = await readScoreRows(spreadsheetId, token);
   if (scoreRows.length) {
-    return buildStateFromScoreRows(scoreRows);
+    return mergeStoredDrafts(buildStateFromScoreRows(scoreRows), storedState);
+  }
+
+  if (storedState) {
+    return storedState;
   }
 
   return createInitialState();
@@ -64,6 +65,7 @@ export async function saveGoogleSheetsState(state: AppState) {
   const spreadsheetId = getSpreadsheetId();
   const token = await getAccessToken();
   await ensureSheet(spreadsheetId, appStateSheetName, token);
+  await ensureSheet(spreadsheetId, writableScoreSheetName, token);
 
   const serialized = JSON.stringify({
     schemaVersion: 1,
@@ -81,6 +83,10 @@ export async function saveGoogleSheetsState(state: AppState) {
 
   await clearValues(spreadsheetId, appStateSheetName, token);
   await updateValues(spreadsheetId, `${quoteSheetName(appStateSheetName)}!A1:B${rows.length}`, rows, token);
+
+  const scoreRows = buildScoreSheetValues(state);
+  await clearValues(spreadsheetId, writableScoreSheetName, token, "A:I");
+  await updateValues(spreadsheetId, `${quoteSheetName(writableScoreSheetName)}!A1:I${scoreRows.length}`, scoreRows, token);
 }
 
 async function readStoredState(spreadsheetId: string, token: string): Promise<AppState | undefined> {
@@ -182,7 +188,8 @@ function buildStateFromScoreRows(scoreRows: ScoreRow[]): AppState {
   const sessions: Session[] = [];
   const history: ChampionshipHistory[] = [];
   const rowsBySession = new Map<string, ScoreRow[]>();
-  for (const row of scoreRows) {
+  const normalizedRows = normalizeScoreRows(scoreRows);
+  for (const row of normalizedRows) {
     rowsBySession.set(row.sessionId, [...(rowsBySession.get(row.sessionId) ?? []), row]);
   }
 
@@ -243,6 +250,141 @@ function buildStateFromScoreRows(scoreRows: ScoreRow[]): AppState {
     sessions: sessions.sort((a, b) => (b.finalizedAt ?? b.date).localeCompare(a.finalizedAt ?? a.date)),
     history,
   });
+}
+
+function normalizeScoreRows(scoreRows: ScoreRow[]) {
+  const previousScores = new Map<string, number>();
+  const normalizedRows: ScoreRow[] = [];
+  const rowsByRound = new Map<number, ScoreRow[]>();
+
+  for (const row of scoreRows) {
+    rowsByRound.set(row.round, [...(rowsByRound.get(row.round) ?? []), row]);
+  }
+
+  for (const round of Array.from(rowsByRound.keys()).sort((a, b) => a - b)) {
+    const rows = rowsByRound.get(round) ?? [];
+    for (const row of rows) {
+      const previousScore = previousScores.get(row.playerId) ?? 0;
+      normalizedRows.push({
+        ...row,
+        pointsAwarded: row.cumulativeScore - previousScore,
+        position: getPosition(rows, row.cumulativeScore),
+      });
+    }
+
+    for (const row of rows) {
+      previousScores.set(row.playerId, row.cumulativeScore);
+    }
+  }
+
+  return normalizedRows;
+}
+
+function mergeStoredDrafts(scoreState: AppState, storedState?: AppState) {
+  if (!storedState) return scoreState;
+
+  const scorePlayerIds = new Set(scoreState.players.map((player) => player.id));
+  const extraPlayers = storedState.players.filter((player) => !scorePlayerIds.has(player.id));
+  const draftSessions = storedState.sessions.filter((session) => session.status !== "finalized");
+
+  return recalculateSeason({
+    ...scoreState,
+    players: [...scoreState.players, ...extraPlayers],
+    sessions: [...draftSessions, ...scoreState.sessions],
+    activeSessionId: draftSessions.find((session) => session.id === storedState.activeSessionId)?.id,
+  });
+}
+
+function buildScoreSheetValues(state: AppState) {
+  const rows: string[][] = [
+    ["round", "session_id", "session_date", "player_id", "player", "cumulative_score", "points_awarded", "position", "source"],
+  ];
+  const totals = new Map(state.players.map((player) => [player.id, 0]));
+  const historyBySessionAndPlayer = new Map(
+    state.history
+      .filter((event) => event.reason === "session_award" && event.sessionId)
+      .map((event) => [`${event.sessionId}:${event.playerId}`, event]),
+  );
+  const finalizedSessions = state.sessions
+    .filter((session) => session.status === "finalized" && session.results?.length)
+    .sort((a, b) => getSessionOrder(a) - getSessionOrder(b));
+
+  finalizedSessions.forEach((session, index) => {
+    const round = getRoundNumber(session, index + 1);
+    const source = getSessionSource(session);
+    const resultRows = session.results!.map((result) => {
+      const event = historyBySessionAndPlayer.get(`${session.id}:${result.playerId}`);
+      const pointsAwarded = event?.points ?? result.championshipPointsAwarded;
+      const cumulativeScore = (totals.get(result.playerId) ?? 0) + pointsAwarded;
+      const playerName = state.players.find((player) => player.id === result.playerId)?.name ?? "Unknown";
+      totals.set(result.playerId, cumulativeScore);
+
+      return {
+        round,
+        sessionId: session.id,
+        sessionDate: session.date,
+        playerId: result.playerId,
+        playerName,
+        cumulativeScore,
+        pointsAwarded,
+        position: 0,
+        source,
+      };
+    });
+
+    for (const row of resultRows) {
+      row.position = getPosition(
+        resultRows.map((item) => ({ cumulativeScore: item.cumulativeScore })),
+        row.cumulativeScore,
+      );
+    }
+
+    resultRows
+      .sort((a, b) => a.position - b.position || b.cumulativeScore - a.cumulativeScore || a.playerName.localeCompare(b.playerName))
+      .forEach((row) => {
+        rows.push([
+          String(row.round),
+          row.sessionId,
+          row.sessionDate,
+          row.playerId,
+          row.playerName,
+          String(row.cumulativeScore),
+          String(row.pointsAwarded),
+          String(row.position),
+          row.source,
+        ]);
+      });
+  });
+
+  return rows;
+}
+
+function getPosition(rows: Array<{ cumulativeScore: number }>, score: number) {
+  return rows.filter((row) => row.cumulativeScore > score).length + 1;
+}
+
+function getRoundNumber(session: Session, fallback: number) {
+  const dateRound = /^Round (\d+)$/i.exec(session.date)?.[1];
+  if (dateRound) return Number(dateRound);
+
+  const idRound = /^20000000-0000-4000-8000-(\d{12})$/.exec(session.id)?.[1];
+  if (idRound) return Number(idRound);
+
+  return fallback;
+}
+
+function getSessionOrder(session: Session) {
+  const round = getRoundNumber(session, Number.MAX_SAFE_INTEGER);
+  if (round !== Number.MAX_SAFE_INTEGER) return round;
+
+  const timestamp = Date.parse(session.finalizedAt ?? session.createdAt ?? session.date);
+  return Number.isFinite(timestamp) ? 10_000 + timestamp : Number.MAX_SAFE_INTEGER;
+}
+
+function getSessionSource(session: Session) {
+  const firstResult = session.results?.[0];
+  if (!firstResult) return "app_state";
+  return /^20000000-0000-4000-8000-\d{12}$/.test(session.id) ? "google-sheets" : "app-submit";
 }
 
 async function getAccessToken() {
@@ -335,8 +477,8 @@ async function updateValues(spreadsheetId: string, range: string, values: string
   });
 }
 
-async function clearValues(spreadsheetId: string, sheetName: string, token: string) {
-  await sheetsFetch(`/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(`${quoteSheetName(sheetName)}!A:B`)}:clear`, token, {
+async function clearValues(spreadsheetId: string, sheetName: string, token: string, columns = "A:B") {
+  await sheetsFetch(`/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(`${quoteSheetName(sheetName)}!${columns}`)}:clear`, token, {
     method: "POST",
     body: JSON.stringify({}),
   });
