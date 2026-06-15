@@ -44,10 +44,14 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Remove server-only routes for static Pages build
+        run: rm -rf src/app/api
+
       - name: Build static site
         run: npm run build
         env:
           NEXT_TELEMETRY_DISABLED: 1
+          NEXT_OUTPUT_EXPORT: "true"
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
 

@@ -74,6 +74,12 @@ type HistoryRow = {
 };
 
 export async function loadPersistedState(): Promise<AppState> {
+  const googleState = await loadGoogleSheetsState();
+  if (googleState) {
+    saveStoredState(googleState);
+    return googleState;
+  }
+
   if (!hasSupabaseConfig || !supabase) {
     return loadStoredState();
   }
@@ -90,6 +96,10 @@ export async function loadPersistedState(): Promise<AppState> {
 export async function savePersistedState(state: AppState) {
   saveStoredState(state);
 
+  if (await saveGoogleSheetsState(state)) {
+    return;
+  }
+
   if (!hasSupabaseConfig || !supabase) {
     return;
   }
@@ -99,6 +109,43 @@ export async function savePersistedState(state: AppState) {
   } catch {
     saveStoredState(state);
   }
+}
+
+async function loadGoogleSheetsState(): Promise<AppState | undefined> {
+  try {
+    const response = await fetch(`${apiBasePath()}/api/state`, {
+      method: "GET",
+      cache: "no-store",
+      headers: { Accept: "application/json" },
+    });
+
+    if (!response.ok) return undefined;
+
+    const body = (await response.json()) as { state?: AppState };
+    return body.state;
+  } catch {
+    return undefined;
+  }
+}
+
+async function saveGoogleSheetsState(state: AppState): Promise<boolean> {
+  try {
+    const response = await fetch(`${apiBasePath()}/api/state`, {
+      method: "PUT",
+      cache: "no-store",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ state }),
+    });
+
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
+function apiBasePath() {
+  const basePath = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
+  return basePath && basePath !== "/" ? basePath : "";
 }
 
 async function loadSupabaseState(): Promise<AppState> {

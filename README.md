@@ -5,7 +5,8 @@ Modern mobile-first web app for running a weekly Americano-style badminton champ
 ## What Is Included
 
 - Next.js App Router, TypeScript, Tailwind CSS 4
-- Local-first autosave so the MVP works immediately without Supabase keys
+- Local-first autosave so the MVP works immediately without cloud keys
+- Google Sheets persistence through a server-side service account when env vars are configured
 - Supabase repository adapter that loads and saves through the relational tables when env vars are configured
 - Supabase schema and seed data in `supabase/`
 - Americano-style schedule generator with fair partner, opponent, and bye balancing
@@ -52,12 +53,26 @@ supabase db execute --file supabase/seed.sql
 
 The UI uses a persistence adapter. Without Supabase env vars it saves locally for offline match nights; with env vars it loads and saves through the Supabase tables.
 
+## Google Sheets Setup
+
+Share the target Google Sheet with the service account email as an editor, then add server-side env vars to `.env.local`:
+
+```bash
+GOOGLE_SHEETS_SPREADSHEET_ID=the-id-between-/d/-and-/edit-in-the-sheet-url
+GOOGLE_APPLICATION_CREDENTIALS=/absolute/path/to/service-account.json
+```
+
+If the sheet has a tab named `scores`, `Scores`, `all_scores_so_far`, `All Scores So Far`, or `Sheet1` with the generated CSV columns, the app will bootstrap from that data the first time it connects. After that, it writes the full app state to an `app_state` tab.
+
+Because the service account private key must stay server-side, Google Sheets persistence requires `npm run dev` or a server deployment with `npm run build && npm run start`. Static GitHub Pages builds remove the API route and continue to use browser/local persistence.
+
 ## Core Files
 
 - `src/lib/schedule.ts`: Americano schedule generation
 - `src/lib/scoring.ts`: score validation, session leaderboard, competition ranking
 - `src/lib/championship.ts`: player/session services, imports, finalization, season recalculation
-- `src/lib/repository.ts`: local/Supabase persistence adapter
+- `src/lib/repository.ts`: local/Google Sheets/Supabase persistence adapter
+- `src/lib/googleSheetsState.ts`: Google Sheets service-account adapter
 - `src/lib/stats.ts`: progression, partner records, head-to-head records
 - `src/components/ChampionshipApp.tsx`: responsive app shell and workflow
 - `supabase/migrations/0001_initial_schema.sql`: relational database schema
