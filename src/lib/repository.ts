@@ -73,6 +73,8 @@ type HistoryRow = {
   metadata: Record<string, unknown> | null;
 };
 
+let remoteSaveQueue = Promise.resolve();
+
 export async function loadPersistedState(): Promise<AppState> {
   const googleState = await loadGoogleSheetsState();
   if (googleState) {
@@ -96,19 +98,25 @@ export async function loadPersistedState(): Promise<AppState> {
 export async function savePersistedState(state: AppState) {
   saveStoredState(state);
 
-  if (await saveGoogleSheetsState(state)) {
-    return;
-  }
+  remoteSaveQueue = remoteSaveQueue
+    .catch(() => undefined)
+    .then(async () => {
+      if (await saveGoogleSheetsState(state)) {
+        return;
+      }
 
-  if (!hasSupabaseConfig || !supabase) {
-    return;
-  }
+      if (!hasSupabaseConfig || !supabase) {
+        return;
+      }
 
-  try {
-    await saveSupabaseState(state);
-  } catch {
-    saveStoredState(state);
-  }
+      try {
+        await saveSupabaseState(state);
+      } catch {
+        saveStoredState(state);
+      }
+    });
+
+  await remoteSaveQueue;
 }
 
 async function loadGoogleSheetsState(): Promise<AppState | undefined> {

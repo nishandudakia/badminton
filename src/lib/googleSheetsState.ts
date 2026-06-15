@@ -51,7 +51,12 @@ export async function loadGoogleSheetsState(): Promise<AppState> {
   const storedState = await readStoredState(spreadsheetId, token);
   const scoreRows = await readScoreRows(spreadsheetId, token);
   if (scoreRows.length) {
-    return mergeStoredDrafts(buildStateFromScoreRows(scoreRows), storedState);
+    const scoreState = buildStateFromScoreRows(scoreRows);
+    if (storedState && finalizedSessionCount(storedState) > finalizedSessionCount(scoreState)) {
+      return storedState;
+    }
+
+    return mergeStoredDrafts(scoreState, storedState);
   }
 
   if (storedState) {
@@ -67,26 +72,45 @@ export async function saveGoogleSheetsState(state: AppState) {
   await ensureSheet(spreadsheetId, appStateSheetName, token);
   await ensureSheet(spreadsheetId, writableScoreSheetName, token);
 
+  const currentState = await readCurrentPersistedState(spreadsheetId, token);
+  if (currentState && wouldRollbackFinalizedSession(state, currentState)) {
+    return;
+  }
+
+  const scoreRows = buildScoreSheetValues(state);
+  await clearValues(spreadsheetId, writableScoreSheetName, token, "A:I");
+  await updateValues(spreadsheetId, `${quoteSheetName(writableScoreSheetName)}!A1:I${scoreRows.length}`, scoreRows, token);
+
+  const savedAt = new Date().toISOString();
   const serialized = JSON.stringify({
     schemaVersion: 1,
-    savedAt: new Date().toISOString(),
+    savedAt,
     state,
   });
   const chunks = serialized.match(new RegExp(`.{1,${chunkSize}}`, "gs")) ?? [serialized];
   const rows = [
     ["key", "value"],
     ["schema_version", "1"],
-    ["updated_at", new Date().toISOString()],
+    ["updated_at", savedAt],
     ["chunk_count", String(chunks.length)],
     ...chunks.map((chunk, index) => [`chunk_${String(index).padStart(4, "0")}`, chunk]),
   ];
 
   await clearValues(spreadsheetId, appStateSheetName, token);
   await updateValues(spreadsheetId, `${quoteSheetName(appStateSheetName)}!A1:B${rows.length}`, rows, token);
+}
 
-  const scoreRows = buildScoreSheetValues(state);
-  await clearValues(spreadsheetId, writableScoreSheetName, token, "A:I");
-  await updateValues(spreadsheetId, `${quoteSheetName(writableScoreSheetName)}!A1:I${scoreRows.length}`, scoreRows, token);
+async function readCurrentPersistedState(spreadsheetId: string, token: string) {
+  const storedState = await readStoredState(spreadsheetId, token);
+  const scoreRows = await readScoreRows(spreadsheetId, token);
+  if (!scoreRows.length) return storedState;
+
+  const scoreState = buildStateFromScoreRows(scoreRows);
+  if (storedState && finalizedSessionCount(storedState) > finalizedSessionCount(scoreState)) {
+    return storedState;
+  }
+
+  return mergeStoredDrafts(scoreState, storedState);
 }
 
 async function readStoredState(spreadsheetId: string, token: string): Promise<AppState | undefined> {
@@ -293,6 +317,22 @@ function mergeStoredDrafts(scoreState: AppState, storedState?: AppState) {
     sessions: [...draftSessions, ...scoreState.sessions],
     activeSessionId: draftSessions.find((session) => session.id === storedState.activeSessionId)?.id,
   });
+}
+
+function finalizedSessionCount(state: AppState) {
+  return state.sessions.filter((session) => session.status === "finalized" && session.results?.length).length;
+}
+
+function wouldRollbackFinalizedSession(incomingState: AppState, currentState: AppState) {
+  const currentFinalizedSessionIds = new Set(
+    currentState.sessions
+      .filter((session) => session.status === "finalized" && session.results?.length)
+      .map((session) => session.id),
+  );
+
+  return incomingState.sessions.some(
+    (session) => session.status !== "finalized" && currentFinalizedSessionIds.has(session.id),
+  );
 }
 
 function buildScoreSheetValues(state: AppState) {
