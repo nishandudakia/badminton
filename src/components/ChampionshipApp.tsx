@@ -435,10 +435,6 @@ function Dashboard({ state, onToast, onReset }: { state: AppState; onToast: (mes
                 <p className="text-sm font-black text-[#0f766e]">{leader.totalChampionshipPoints} pts</p>
               </div>
             )}
-            <Button variant="danger" disabled={!leader || leader.totalChampionshipPoints <= 0} onClick={onReset}>
-              <RotateCcw size={16} />
-              Reset championship
-            </Button>
           </div>
         </div>
 
@@ -477,6 +473,10 @@ function Dashboard({ state, onToast, onReset }: { state: AppState; onToast: (mes
             </div>
           ))}
         </div>
+        <Button className="mt-4 w-full" variant="danger" disabled={!leader || leader.totalChampionshipPoints <= 0} onClick={onReset}>
+          <RotateCcw size={16} />
+          Reset championship
+        </Button>
       </Panel>
     </div>
   );
