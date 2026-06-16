@@ -215,15 +215,17 @@ export function ChampionshipApp() {
         </div>
       )}
 
-      <button
-        type="button"
-        title="New tournament"
-        aria-label="New tournament"
-        onClick={() => setMode("create")}
-        className="fixed bottom-5 right-5 z-40 grid h-14 w-14 place-items-center rounded-full bg-[#16a34a] text-white shadow-xl transition hover:bg-[#0f766e] focus:outline-none focus:ring-4 focus:ring-[#16a34a]/25"
-      >
-        <Plus size={26} />
-      </button>
+      {mode === "dashboard" && (
+        <button
+          type="button"
+          title="New tournament"
+          aria-label="New tournament"
+          onClick={() => setMode("create")}
+          className="fixed bottom-5 right-5 z-40 grid h-14 w-14 place-items-center rounded-full bg-[#16a34a] text-white shadow-xl transition hover:bg-[#0f766e] focus:outline-none focus:ring-4 focus:ring-[#16a34a]/25"
+        >
+          <Plus size={26} />
+        </button>
+      )}
     </main>
   );
 }
