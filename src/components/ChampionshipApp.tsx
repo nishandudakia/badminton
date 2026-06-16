@@ -1,9 +1,11 @@
 "use client";
 
 import {
+  AlertTriangle,
   LineChart,
   Check,
   Copy,
+  Medal,
   Play,
   Plus,
   RefreshCw,
@@ -23,6 +25,7 @@ import {
   finalizeSession,
   recalculateSeason,
   regenerateSessionSchedule,
+  resetChampionship,
   setMatchScore,
   updateMatchTeams,
   updateSessionBasics,
@@ -32,13 +35,15 @@ import { calculateSessionResults, sortChampionshipPlayers } from "@/lib/scoring"
 import { loadPersistedState, savePersistedState } from "@/lib/repository";
 import type { AppState, Match, MatchScore, Player, Session } from "@/lib/types";
 
-type Mode = "dashboard" | "create" | "tournament" | "past";
+type Mode = "dashboard" | "create" | "tournament" | "past" | "board";
 
 export function ChampionshipApp() {
   const [state, setState] = useState<AppState>(() => createInitialState());
   const [hasLoaded, setHasLoaded] = useState(false);
   const [mode, setMode] = useState<Mode>("create");
   const [toast, setToast] = useState("");
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
+  const [championshipWinner, setChampionshipWinner] = useState<{ name: string; points: number } | null>(null);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -109,6 +114,10 @@ export function ChampionshipApp() {
               <Trophy size={16} />
               Past tournaments
             </Button>
+            <Button variant={mode === "board" ? "primary" : "ghost"} onClick={() => setMode("board")}>
+              <Medal size={16} />
+              Championship board
+            </Button>
             {currentTournament && (
               <Button variant={mode === "tournament" ? "primary" : "ghost"} onClick={() => setMode("tournament")}>
                 <Play size={16} />
@@ -120,7 +129,9 @@ export function ChampionshipApp() {
 
         <div className="py-5">
           {mode === "dashboard" ? (
-            <Dashboard state={state} onToast={showToast} />
+            <Dashboard state={state} onToast={showToast} onReset={() => setShowResetConfirm(true)} />
+          ) : mode === "board" ? (
+            <ChampionshipBoard state={state} />
           ) : mode === "past" ? (
             <PastTournaments
               state={state}
@@ -187,12 +198,98 @@ export function ChampionshipApp() {
         </div>
       </div>
 
+      {showResetConfirm && (
+        <ConfirmResetModal
+          state={state}
+          onCancel={() => setShowResetConfirm(false)}
+          onConfirm={() => {
+            const winner = sortChampionshipPlayers(state.players.filter((player) => !player.isGuest && !player.archivedAt))[0];
+            commit((current) => resetChampionship(current));
+            setShowResetConfirm(false);
+            if (winner) {
+              setChampionshipWinner({ name: winner.name, points: winner.totalChampionshipPoints });
+            }
+            setMode("board");
+            showToast("Championship reset");
+          }}
+        />
+      )}
+
+      {championshipWinner && (
+        <WinnerModal winner={championshipWinner} onClose={() => setChampionshipWinner(null)} />
+      )}
+
       {toast && (
         <div className="fixed bottom-5 left-1/2 z-40 -translate-x-1/2 rounded-lg bg-[#17201b] px-4 py-3 text-sm font-black text-white shadow-xl">
           {toast}
         </div>
       )}
     </main>
+  );
+}
+
+function ConfirmResetModal({ state, onCancel, onConfirm }: { state: AppState; onCancel: () => void; onConfirm: () => void }) {
+  const rankedPlayers = sortChampionshipPlayers(state.players.filter((player) => !player.isGuest && !player.archivedAt));
+  const leader = rankedPlayers[0];
+
+  return (
+    <ModalShell>
+      <div className="flex items-start gap-3">
+        <span className="grid h-11 w-11 shrink-0 place-items-center rounded-lg bg-[#fff1ef] text-[#dc2626]">
+          <AlertTriangle size={22} />
+        </span>
+        <div className="min-w-0">
+          <h2 className="text-xl font-black tracking-normal">Reset championship?</h2>
+          <p className="mt-2 text-sm font-semibold text-black/55">
+            This will declare the current leader as champion, save them to the championship board, and restart the live points table from zero.
+          </p>
+          {leader && (
+            <div className="mt-4 rounded-lg border border-[#16a34a]/30 bg-[#edf8ef] p-3">
+              <p className="text-xs font-black uppercase tracking-[0.1em] text-[#0f766e]">Current winner</p>
+              <p className="mt-1 text-lg font-black">{leader.name}</p>
+              <p className="text-sm font-black text-[#0f766e]">{leader.totalChampionshipPoints} pts</p>
+            </div>
+          )}
+          <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <Button variant="ghost" onClick={onCancel}>
+              Cancel
+            </Button>
+            <Button variant="danger" disabled={!leader} onClick={onConfirm}>
+              <RotateCcw size={16} />
+              Reset championship
+            </Button>
+          </div>
+        </div>
+      </div>
+    </ModalShell>
+  );
+}
+
+function WinnerModal({ winner, onClose }: { winner: { name: string; points: number }; onClose: () => void }) {
+  return (
+    <ModalShell>
+      <div className="text-center">
+        <div className="mx-auto grid h-20 w-20 place-items-center rounded-full border border-[#f59e0b]/30 bg-[#fff7ed] text-[#d97706]">
+          <Medal size={42} />
+        </div>
+        <p className="mt-5 text-xs font-black uppercase tracking-[0.14em] text-[#0f766e]">Championship winner</p>
+        <h2 className="mt-2 text-3xl font-black tracking-normal">{winner.name}</h2>
+        <p className="mt-2 text-sm font-semibold text-black/55">{winner.points} championship points</p>
+        <Button className="mt-6 w-full" onClick={onClose}>
+          View championship board
+        </Button>
+      </div>
+    </ModalShell>
+  );
+}
+
+function ModalShell({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/45 px-4 py-6">
+      <section className="w-full max-w-md rounded-lg border border-black/10 bg-white p-5 shadow-2xl sm:p-6">
+        {children}
+      </section>
+    </div>
   );
 }
 
@@ -261,7 +358,48 @@ function PastTournaments({ state, onDelete }: { state: AppState; onDelete: (sess
   );
 }
 
-function Dashboard({ state, onToast }: { state: AppState; onToast: (message: string) => void }) {
+function ChampionshipBoard({ state }: { state: AppState }) {
+  const winners = getChampionshipWinners(state);
+
+  return (
+    <Panel>
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <SectionTitle icon={Medal} title="Championship Board" />
+          <p className="mt-2 text-sm font-semibold text-black/55">
+            {winners.length ? `${winners.length} championship ${winners.length === 1 ? "winner" : "winners"} recorded.` : "Championship winners will appear here after a reset."}
+          </p>
+        </div>
+      </div>
+
+      <div className="mt-5 space-y-3">
+        {winners.map((winner, index) => (
+          <article
+            key={winner.id}
+            className="grid gap-3 rounded-lg border border-black/10 bg-[#fafafa] p-4 sm:grid-cols-[auto_1fr_auto] sm:items-center"
+          >
+            <div className="grid h-12 w-12 place-items-center rounded-lg bg-[#fff7ed] text-[#d97706]">
+              <Medal size={24} />
+            </div>
+            <div className="min-w-0">
+              <p className="text-xs font-black uppercase tracking-[0.12em] text-black/40">Championship {winner.championshipNumber ?? winners.length - index}</p>
+              <h3 className="mt-1 truncate text-lg font-black tracking-normal">{winner.playerName}</h3>
+              <p className="mt-1 text-sm font-semibold text-black/55">{formatDateTime(winner.awardedAt)}</p>
+            </div>
+            <div className="text-left sm:text-right">
+              <p className="text-xl font-black text-[#0f766e]">{winner.points}</p>
+              <p className="text-xs font-black uppercase tracking-[0.1em] text-black/40">winning pts</p>
+            </div>
+          </article>
+        ))}
+      </div>
+
+      {!winners.length && <EmptyInline text="Reset the current championship from the dashboard to record the first winner." />}
+    </Panel>
+  );
+}
+
+function Dashboard({ state, onToast, onReset }: { state: AppState; onToast: (message: string) => void; onReset: () => void }) {
   const rankedPlayers = sortChampionshipPlayers(state.players.filter((player) => !player.isGuest && !player.archivedAt));
   const timeline = buildChampionshipTimeline(state);
   const leader = rankedPlayers[0];
@@ -289,13 +427,19 @@ function Dashboard({ state, onToast }: { state: AppState; onToast: (message: str
               Current standings after {timeline.length ? timeline.at(-1)?.label : "no recorded rounds"}.
             </p>
           </div>
-          {leader && (
-            <div className="rounded-lg border border-[#16a34a]/30 bg-[#edf8ef] px-3 py-2 sm:px-4 sm:py-3">
-              <p className="text-xs font-black uppercase tracking-[0.1em] text-[#0f766e]">Leader</p>
-              <p className="mt-1 text-lg font-black sm:text-xl">{leader.name}</p>
-              <p className="text-sm font-black text-[#0f766e]">{leader.totalChampionshipPoints} pts</p>
-            </div>
-          )}
+          <div className="flex flex-col gap-2 sm:items-end">
+            {leader && (
+              <div className="rounded-lg border border-[#16a34a]/30 bg-[#edf8ef] px-3 py-2 sm:px-4 sm:py-3">
+                <p className="text-xs font-black uppercase tracking-[0.1em] text-[#0f766e]">Leader</p>
+                <p className="mt-1 text-lg font-black sm:text-xl">{leader.name}</p>
+                <p className="text-sm font-black text-[#0f766e]">{leader.totalChampionshipPoints} pts</p>
+              </div>
+            )}
+            <Button variant="danger" disabled={!leader || leader.totalChampionshipPoints <= 0} onClick={onReset}>
+              <RotateCcw size={16} />
+              Reset championship
+            </Button>
+          </div>
         </div>
 
         <div className="mt-4 grid grid-cols-3 gap-2">
@@ -792,6 +936,30 @@ function getPlayerName(state: AppState, playerId: string) {
   return state.players.find((player) => player.id === playerId)?.name ?? "Unknown";
 }
 
+function getChampionshipWinners(state: AppState) {
+  return state.history
+    .filter((event) => event.metadata?.type === "championship_win")
+    .map((event) => ({
+      id: event.id,
+      playerName: getPlayerName(state, event.playerId),
+      points: Number(event.metadata?.winnerPoints ?? 0),
+      championshipNumber:
+        typeof event.metadata?.championshipNumber === "number" ? event.metadata.championshipNumber : undefined,
+      awardedAt: event.awardedAt,
+    }))
+    .sort((a, b) => b.awardedAt.localeCompare(a.awardedAt));
+}
+
+function formatDateTime(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+
+  return new Intl.DateTimeFormat("en-GB", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(date);
+}
+
 function formatChampionshipPointsTable(players: Player[]) {
   return players
     .map((player, index) => `${index + 1}. ${player.name} — ${player.totalChampionshipPoints}`)
@@ -957,10 +1125,12 @@ function buildChampionshipTimeline(state: AppState): TimelinePoint[] {
   const eventsBySession = new Map<string, { label: string; sort: string; events: typeof state.history }>();
 
   for (const event of state.history) {
-    const key = event.sessionId ?? event.id;
+    const resetId = typeof event.metadata?.resetId === "string" ? event.metadata.resetId : undefined;
+    const key = event.sessionId ?? resetId ?? event.id;
     const session = event.sessionId ? state.sessions.find((item) => item.id === event.sessionId) : undefined;
+    const isResetEvent = event.metadata?.type === "championship_win" || event.metadata?.type === "championship_reset";
     const existing = eventsBySession.get(key) ?? {
-      label: String(event.metadata?.sessionDate ?? session?.date ?? "Adjustment"),
+      label: isResetEvent ? "Championship reset" : String(event.metadata?.sessionDate ?? session?.date ?? "Adjustment"),
       sort: event.awardedAt,
       events: [],
     };

@@ -309,11 +309,18 @@ function mergeStoredDrafts(scoreState: AppState, storedState?: AppState) {
   const scorePlayerIds = new Set(scoreState.players.map((player) => player.id));
   const extraPlayers = storedState.players.filter((player) => !scorePlayerIds.has(player.id));
   const draftSessions = storedState.sessions.filter((session) => session.status !== "finalized");
+  const scoreHistoryIds = new Set(scoreState.history.map((event) => event.id));
+  const storedStateOnlyHistory = storedState.history.filter(
+    (event) =>
+      !scoreHistoryIds.has(event.id) &&
+      (event.reason !== "session_award" || event.metadata?.type === "championship_win" || event.metadata?.type === "championship_reset"),
+  );
 
   return recalculateSeason({
     ...scoreState,
     players: [...scoreState.players, ...extraPlayers],
     sessions: [...draftSessions, ...scoreState.sessions],
+    history: [...scoreState.history, ...storedStateOnlyHistory],
     activeSessionId: draftSessions.find((session) => session.id === storedState.activeSessionId)?.id,
   });
 }

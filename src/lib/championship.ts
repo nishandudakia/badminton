@@ -351,6 +351,58 @@ export function deleteSession(state: AppState, sessionId: string): AppState {
   });
 }
 
+export function resetChampionship(state: AppState): AppState {
+  const rankedPlayers = state.players
+    .filter((player) => !player.isGuest && !player.archivedAt)
+    .sort((a, b) => b.totalChampionshipPoints - a.totalChampionshipPoints || a.name.localeCompare(b.name));
+  const winner = rankedPlayers[0];
+  const now = new Date().toISOString();
+  const resetId = createId("championship-reset");
+
+  const resetEvents: ChampionshipHistory[] = [];
+  if (winner) {
+    resetEvents.push({
+      id: createId("history"),
+      playerId: winner.id,
+      points: 0,
+      reason: "manual_adjustment",
+      awardedAt: now,
+      metadata: {
+        type: "championship_win",
+        resetId,
+        winnerPoints: winner.totalChampionshipPoints,
+        championshipNumber: getChampionshipWinCount(state) + 1,
+      },
+    });
+  }
+
+  for (const player of state.players) {
+    if (!player.totalChampionshipPoints) continue;
+
+    resetEvents.push({
+      id: createId("history"),
+      playerId: player.id,
+      points: -player.totalChampionshipPoints,
+      reason: "manual_adjustment",
+      awardedAt: now,
+      metadata: {
+        type: "championship_reset",
+        resetId,
+        resetFromPoints: player.totalChampionshipPoints,
+      },
+    });
+  }
+
+  return recalculateSeason({
+    ...state,
+    history: [...state.history, ...resetEvents],
+  });
+}
+
+function getChampionshipWinCount(state: AppState) {
+  return state.history.filter((event) => event.metadata?.type === "championship_win").length;
+}
+
 export function importHistoricalSessions(
   state: AppState,
   payload: HistoricalImportSession | HistoricalImportSession[],
