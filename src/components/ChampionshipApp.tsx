@@ -101,30 +101,20 @@ export function ChampionshipApp() {
               <h1 className="text-2xl font-black tracking-normal">Tournament Generator</h1>
             </div>
           </div>
-          <div className="flex flex-wrap gap-2">
-            <Button variant={mode === "create" ? "primary" : "ghost"} onClick={() => setMode("create")}>
-              <Plus size={16} />
-              New tournament
-            </Button>
-            <Button variant={mode === "dashboard" ? "primary" : "ghost"} onClick={() => setMode("dashboard")}>
-              <LineChart size={16} />
-              Dashboard
-            </Button>
-            <Button variant={mode === "past" ? "primary" : "ghost"} onClick={() => setMode("past")}>
-              <Trophy size={16} />
-              Past tournaments
-            </Button>
-            <Button variant={mode === "board" ? "primary" : "ghost"} onClick={() => setMode("board")}>
-              <Medal size={16} />
-              Championship board
-            </Button>
-            {currentTournament && (
-              <Button variant={mode === "tournament" ? "primary" : "ghost"} onClick={() => setMode("tournament")}>
-                <Play size={16} />
-                Current tournament
-              </Button>
-            )}
-          </div>
+          <label className="block w-full sm:w-72">
+            <span className="sr-only">Page</span>
+            <select
+              value={mode === "create" ? "" : mode}
+              onChange={(event) => setMode(event.target.value as Mode)}
+              className="h-11 w-full rounded-lg border border-black/10 bg-white px-3 text-sm font-black outline-none transition focus:border-[#16a34a]"
+            >
+              {mode === "create" && <option value="">New tournament</option>}
+              <option value="dashboard">Dashboard</option>
+              {currentTournament && <option value="tournament">Current tournament</option>}
+              <option value="past">Past tournaments</option>
+              <option value="board">Championship board</option>
+            </select>
+          </label>
         </header>
 
         <div className="py-5">
@@ -224,6 +214,16 @@ export function ChampionshipApp() {
           {toast}
         </div>
       )}
+
+      <button
+        type="button"
+        title="New tournament"
+        aria-label="New tournament"
+        onClick={() => setMode("create")}
+        className="fixed bottom-5 right-5 z-40 grid h-14 w-14 place-items-center rounded-full bg-[#16a34a] text-white shadow-xl transition hover:bg-[#0f766e] focus:outline-none focus:ring-4 focus:ring-[#16a34a]/25"
+      >
+        <Plus size={26} />
+      </button>
     </main>
   );
 }
